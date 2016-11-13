@@ -1,0 +1,5 @@
+currentversion = "0.1"
+
+[[place]]
+file = "loadlimit/__init__.py"
+line-regex = '__version__'
