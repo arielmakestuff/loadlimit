@@ -1,0 +1,13 @@
+# Config file for automatic testing at travis-ci.org
+
+language: python
+python: 3.5
+
+env:
+  - TOXENV=test
+
+# command to install dependencies
+install: pip install -U tox
+
+# command to run tests
+script: tox
