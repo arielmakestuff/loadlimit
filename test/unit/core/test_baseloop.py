@@ -123,13 +123,25 @@ def test_loglevel_switch(caplog, expected):
 # ============================================================================
 
 
+def choose_platform(platlist):
+    """docstring for choose_platform"""
+    curplatform = sys.platform
+    if curplatform == 'win32':
+        ret = [p for p in platlist if p == curplatform]
+    else:
+        ret = platlist
+    return ret
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='windows')
 @pytest.mark.parametrize('signal,platform', [
     (s, p) for s in [SIGTERM, SIGINT]
-    for p in ['win32', 'linux']
+    for p in choose_platform(['win32', 'linux'])
 ])
 def test_stopsignals(monkeypatch, caplog, signal, platform):
     """SIGTERM and SIGINT stop the loop"""
-    monkeypatch.setattr(sys, 'platform', platform)
+    if sys.platform != platform:
+        monkeypatch.setattr(sys, 'platform', platform)
 
     async def killme(logger, signal):
         """Send signal to me"""
@@ -187,6 +199,10 @@ def test_stoperror(caplog):
         'loop closed'
     ]
 
+    # Insert needed extra messages if on windows
+    if sys.platform == 'win32':
+        expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
+
     result = [r.message for r in caplog.records]
     assert result == expected
 
@@ -219,17 +235,23 @@ def test_run_stoperror(caplog):
         'loop closed'
     ]
 
+    # Insert needed extra messages if on windows
+    if sys.platform == 'win32':
+        expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
+
     result = [r.message for r in caplog.records]
     assert result == expected
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='windows')
 @pytest.mark.parametrize('signal,platform', [
     (s, p) for s in [SIGTERM, SIGINT]
-    for p in ['win32', 'linux']
+    for p in choose_platform(['win32', 'linux'])
 ])
 def test_run_stopsignals(monkeypatch, caplog, signal, platform):
     """run -- SIGTERM and SIGINT stop the loop"""
-    monkeypatch.setattr(sys, 'platform', platform)
+    if sys.platform != platform:
+        monkeypatch.setattr(sys, 'platform', platform)
 
     async def killme(logger, signal):
         """Send signal to me"""
