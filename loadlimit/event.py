@@ -19,6 +19,7 @@ from functools import wraps
 # Third-party imports
 
 # Local imports
+from .util import Namespace
 
 
 # ============================================================================
@@ -194,7 +195,8 @@ class LoadLimitEvent:
     async def runtask(self, corofunc, future, kwargs):
         """Wait for the event and then run the task"""
         await self.wait()
-        await corofunc(future.result(), **kwargs)
+        result = Namespace(**future.result())
+        await corofunc(result, **kwargs)
 
     @property
     def waiting(self):
@@ -270,7 +272,8 @@ class RunLast(LoadLimitEvent):
             await asyncio.gather(*waiting, loop=loop)
 
         # Run the final coro
-        await corofunc(future.result(), **kwargs)
+        result = Namespace(**future.result())
+        await corofunc(result, **kwargs)
 
 
 # ============================================================================

@@ -71,22 +71,22 @@ def test_runlast_runtasks_first(event_loop):
     @event
     async def one(result):
         """one"""
-        val.append(result['v'].format('one'))
+        val.append(result.v.format('one'))
 
     @event
     async def two(result):
         """one"""
-        val.append(result['v'].format('two'))
+        val.append(result.v.format('two'))
 
     @event
     async def three(result):
         """one"""
-        val.append(result['v'].format('three'))
+        val.append(result.v.format('three'))
 
     @event(runlast=True)
     async def four(result):
         """one"""
-        val.append(result['v'].format('four'))
+        val.append(result.v.format('four'))
 
     event.start(loop=event_loop)
     event.set(v='{}')
@@ -111,7 +111,7 @@ def test_runlast_notasks(event_loop):
     @event(runlast=True)
     async def one(result):
         """one"""
-        val.append(result['v'].format('one'))
+        val.append(result.v.format('one'))
 
     event.start(loop=event_loop)
     event.set(v='{}')
