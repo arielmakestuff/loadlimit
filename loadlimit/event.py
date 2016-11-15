@@ -101,11 +101,11 @@ class LoadLimitEvent:
         event.clear()
 
         # Cancel tasks already waiting for the event
-        waiting = self._waiting
+        waiting = {t for t in self._waiting if not t.done()}
         if waiting:
             tasks_future = asyncio.gather(*waiting)
             tasks_future.cancel()
-            waiting.clear()
+        self._waiting.clear()
 
         self._event = None
         if not self._kwargs.done():
