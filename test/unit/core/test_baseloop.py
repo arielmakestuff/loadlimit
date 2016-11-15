@@ -24,6 +24,7 @@ import pytest
 # Local imports
 from loadlimit.core import BaseLoop
 from loadlimit.util import LogLevel
+from loadlimit import event
 
 
 # ============================================================================
@@ -321,7 +322,7 @@ def test_exitcode_loop_still_running():
     async def check_exitcode(baseloop, future):
         """Check exitcode"""
         future.set_result(baseloop.exitcode)
-        asyncio.ensure_future(baseloop.shutdown(42))
+        event.shutdown.set(exitcode=42)
 
     with BaseLoop() as loop:
         future = asyncio.get_event_loop().create_future()

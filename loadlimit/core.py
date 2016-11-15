@@ -23,6 +23,20 @@ import sys
 
 # Local imports
 from .util import LogLevel
+from . import event
+
+
+# ============================================================================
+# Coroutines
+# ============================================================================
+
+
+@event.shutdown(runlast=True)
+async def shutdown(result, *, manager=None):
+    """Coroutine that shuts down the loop"""
+    # manager is an instance of BaseLoop
+    manager.logger.info('shutdown')
+    manager._loopend.set_result(result['exitcode'])
 
 
 # ============================================================================
@@ -65,12 +79,15 @@ class BaseLoop:
 
         # Setup signal handler
         self.initsignals()
+
+        # Start shutdown event
+        event.shutdown.start(loop=loop, manager=self)
+
         return self
 
     def __exit__(self, exctype, exc, tb):
         """Perform cleanup tasks"""
         self.cleanup()
-
         self._loop.close()
         self._loop = None
         self.logger.info('loop closed')
@@ -87,14 +104,12 @@ class BaseLoop:
 
     def initsignals(self):
         """Setup SIGTERM and SIGINT handling"""
-        stopfunc = self.shutdown
         platform = sys.platform
         for sig in [SIGTERM, SIGINT]:
             if platform == 'win32':
-                setupsignal(sig, partial(self.stopsignal, sig, 0, stopfunc))
+                setupsignal(sig, partial(self.stopsignal, sig, 0))
             else:
-                self._loop.add_signal_handler(sig, self.stopsignal, sig, 0,
-                                              stopfunc)
+                self._loop.add_signal_handler(sig, self.stopsignal, sig, 0)
 
         if platform == 'win32':
             asyncio.ensure_future(self.always_sleep())
@@ -102,7 +117,7 @@ class BaseLoop:
     def cleanup(self):
         """Cancel any remaining tasks in the loop"""
         tasks = asyncio.Task.all_tasks()
-        if not tasks:
+        if all(t.done() for t in tasks):
             return
         logger = self.logger
         logger.info('cancelling tasks')
@@ -159,11 +174,6 @@ class BaseLoop:
     # Handlers
     # --------------------
 
-    async def shutdown(self, exitcode):
-        """Coroutine that shuts down the loop"""
-        self.logger.info('shutdown')
-        self._loopend.set_result(exitcode)
-
     def stoploop(self, loopend):
         """Callback to stop the main loop"""
         self.logger.info('stopping loop')
@@ -173,12 +183,12 @@ class BaseLoop:
         """Handle uncaught exceptions"""
         future = context['future']
         self.logger.info('got exception: {}'.format(future.exception()))
-        asyncio.ensure_future(self.shutdown(1))
+        event.shutdown.set(exitcode=1)
 
-    def stopsignal(self, sig, exitcode, shutdownfunc, *args):
+    def stopsignal(self, sig, exitcode, *args):
         """Schedule shutdown"""
         self.logger.info('got signal {} ({})'.format(sig.name, sig))
-        asyncio.ensure_future(self.shutdown(exitcode))
+        event.shutdown.set(exitcode=exitcode)
 
     async def always_sleep(self, duration=1):
         """Coroutine that always sleep for a given duration"""
