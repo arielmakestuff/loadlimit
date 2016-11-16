@@ -14,12 +14,21 @@
 # Stdlib imports
 import asyncio
 from asyncio import Event, ensure_future, iscoroutinefunction
+from enum import Enum
 from functools import wraps
 
 # Third-party imports
 
 # Local imports
 from .util import Namespace
+
+
+# ============================================================================
+# Globals
+# ============================================================================
+
+
+AnchorType = Enum('AnchorType', ['first', 'last'])
 
 
 # ============================================================================
@@ -215,35 +224,37 @@ class LoadLimitEvent:
 
 
 # ============================================================================
-# RunLast
+# Anchor
 # ============================================================================
 
 
-class RunLast(LoadLimitEvent):
-    """Define a coro func that will run after all other tasks"""
+class Anchor(LoadLimitEvent):
+    """Define a coro func that will run anchor all other tasks"""
 
     def __init__(self):
         super().__init__()
-        self._runlast = False
-        self._lastfunc = None
+        self._anchortype = None
+        self._anchorfunc = (None, None)
+        self._anchortask = None
 
-    def __call__(self, corofunc=None, runlast=False):
+    def __call__(self, corofunc=None, anchortype=None):
         """Decorator to add a corofunc to the event"""
-        self._runlast = runlast
+        self.anchortype = anchortype
         return super().__call__(corofunc)
 
     def add(self, *tasks):
         """Adds tasks
 
-        Prevents lastfunc from being added as a normal task
+        Prevents anchorfunc from being added as a normal task
 
         """
         super().add(*tasks)
 
-        # Set lastfunc
-        if self._runlast:
-            self._lastfunc = tasks[0]
-            self._runlast = False
+        # Set anchorfunc
+        anchortype = self._anchortype
+        if anchortype:
+            self._anchorfunc = (anchortype, tasks[0])
+            self._anchortype = None
 
     def _schedule_tasks(self, tasks, result, kwargs, loop):
         """Schedule all tasks
@@ -252,28 +263,91 @@ class RunLast(LoadLimitEvent):
         using the runlast coro.
 
         """
-        lastfunc = self._lastfunc
-        newtasks = {t for t in tasks if t != lastfunc}
-        if newtasks:
-            super()._schedule_tasks(newtasks, result, kwargs, loop)
-        if lastfunc is not None:
-            ensure_future(self.runlast(lastfunc, result, kwargs, loop),
-                          loop=loop)
-        tasks.clear()
-        tasks.add(lastfunc)
+        anchortype, anchorfunc = self._anchorfunc
+        if anchorfunc is None:
+            super()._schedule_tasks(tasks, result, kwargs, loop)
+        else:
+            self._waiting = waiting = {t for t in tasks if t != anchorfunc}
+            self._anchortask = ensure_future(
+                self.anchor(anchorfunc, anchortype, waiting, result,
+                            kwargs, loop),
+                loop=loop)
+            tasks.clear()
+            tasks.add(anchorfunc)
 
-    async def runlast(self, corofunc, future, kwargs, loop):
+    async def anchor(self, corofunc, anchortype, tasks, future, kwargs, loop):
         """Wait for the event and all other tasks before running corofunc"""
         await self.wait()
+        result = future.result()
+
+        # Run the first coro
+        if anchortype == AnchorType.first:
+            await corofunc(Namespace(**result), **kwargs)
+
+        # schedule all tasks
+        if tasks:
+            self._waiting = set()
+            super()._schedule_tasks(tasks, future, kwargs, loop)
 
         # Wait for all other tasks to finish
         waiting = self._waiting
         if waiting:
             await asyncio.gather(*waiting, loop=loop)
 
-        # Run the final coro
-        result = Namespace(**future.result())
-        await corofunc(result, **kwargs)
+        # Run the last coro
+        if anchortype == AnchorType.last:
+            await corofunc(Namespace(**result), **kwargs)
+
+    @property
+    def anchortype(self):
+        """Get current anchortype"""
+        return self._anchortype
+
+    @anchortype.setter
+    def anchortype(self, val):
+        """Set the value of the anchortype"""
+        if val is not None and not isinstance(val, AnchorType):
+            msg = 'anchortype expected AnchorType or NoneType, got {} instead'
+            raise TypeError(msg.format(type(val).__name__))
+        self._anchortype = val
+
+    @property
+    def anchorfunc(self):
+        """Get current anchor function"""
+        return self._anchorfunc[1]
+
+    @property
+    def anchortask(self):
+        """Get anchor task"""
+        return self._anchortask
+
+
+# ============================================================================
+# RunLast
+# ============================================================================
+
+
+class RunLast(Anchor):
+    """Define a coro func that will run after all other tasks"""
+
+    def __call__(self, corofunc=None, runlast=False):
+        """Decorator to add a corofunc to the event"""
+        anchortype = AnchorType.last if runlast else None
+        return super().__call__(corofunc, anchortype=anchortype)
+
+
+# ============================================================================
+# RunFirst
+# ============================================================================
+
+
+class RunFirst(Anchor):
+    """Define a coro func that will run before all other tasks"""
+
+    def __call__(self, corofunc=None, runfirst=False):
+        """Decorator to add a corofunc to the event"""
+        anchortype = AnchorType.first if runfirst else None
+        return super().__call__(corofunc, anchortype=anchortype)
 
 
 # ============================================================================
