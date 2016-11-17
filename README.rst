@@ -4,8 +4,8 @@ loadlimit
 
 .. image:: https://img.shields.io/travis/arielmakestuff/loadlimit.svg
    :target: https://travis-ci.org/arielmakestuff/loadlimit
-.. image:: https://coveralls.io/repos/github/arielmakestuff/loadlimit/badge.svg?branch=develop
-   :target: https://coveralls.io/github/arielmakestuff/loadlimit?branch=develop
+.. image:: https://codecov.io/gh/arielmakestuff/loadlimit/branch/develop/graph/badge.svg
+   :target: https://codecov.io/gh/arielmakestuff/loadlimit
 .. image:: https://requires.io/github/arielmakestuff/loadlimit/requirements.svg?branch=develop
    :target: https://requires.io/github/arielmakestuff/loadlimit/requirements?branch=develop
    :alt: Requirements Status
