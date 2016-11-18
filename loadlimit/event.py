@@ -259,6 +259,14 @@ class MultiEvent:
         """Retrieve the event associated with the given eventid"""
         return self._event[eventid]
 
+    def __contains__(self, eventid):
+        """Determine if eventid exists"""
+        return self._event.__contains__(eventid)
+
+    def __bool__(self):
+        """Return True if events have been stored"""
+        return bool(self._event)
+
     def __call__(self, corofunc=None, eventid=None, *args, **kwargs):
         """Decorator to add a corofunc to an event
 
@@ -312,17 +320,18 @@ class MultiEvent:
         """Returns an iterator over event (key, value) pairs."""
         return self._event.items()
 
-    def clear(self, eventid=None):
+    def clear(self, eventid=None, ignore=None):
         """Reset the given event's internal flag to False.
 
         If eventid is None, will call clear() on all stored events.
 
         """
+        ignorefunc = self._ignore_exception
         if eventid is None:
             for event in self._event.values():
-                event.clear()
+                ignorefunc(ignore, event.clear)
         else:
-            self._event[eventid].clear()
+            ignorefunc(ignore, self._event[eventid].clear)
 
     def is_set(self, eventid=None):
         """Return True iff internal flag for the given event is True
@@ -336,19 +345,21 @@ class MultiEvent:
         else:
             return self._event[eventid].is_set()
 
-    def set(self, eventid=None, **kwargs):
+    def set(self, eventid=None, ignore=None, **kwargs):
         """Set internal flag for the given event to true.
 
         If eventid is None, will set every stored event.
 
         """
+        kwargs['eventid'] = eventid
+        ignorefunc = self._ignore_exception
         if eventid is None:
             for event in self._event.values():
-                event.set(**kwargs)
+                ignorefunc(ignore, event.set, **kwargs)
         else:
-            self._event[eventid].set(**kwargs)
+            ignorefunc(ignore, self._event[eventid].set, **kwargs)
 
-    async def wait(self, eventid=None):
+    async def wait(self, eventid=None, ignore=None):
         """Block until the given event's internal flag is True
 
         If eventid is None, will block until every contained event's internal
@@ -365,30 +376,43 @@ class MultiEvent:
         else:
             await self._event[eventid].wait()
 
-    def add(self, *tasks, eventid=None):
+    def add(self, *tasks, eventid=None, ignore=None):
         """Add one or more tasks to the given event
 
         If eventid is None, adds the tasks to every stored event.
 
         """
+        ignorefunc = self._ignore_exception
         if eventid is None:
             for event in self._event.values():
-                event.add(*tasks)
+                ignorefunc(ignore, event.add, *tasks)
         else:
-            self._event[eventid].add(*tasks)
+            ignorefunc(ignore, self._event[eventid].add, *tasks)
 
-    def start(self, eventid=None, *, loop=None, **kwargs):
+    def start(self, eventid=None, *, loop=None, ignore=None, **kwargs):
         """Start the given event.
 
         If eventid is None, starts all stored events.
 
         """
         self._loop = loop
+        ignorefunc = self._ignore_exception
         if eventid is None:
             for event in self._event.values():
-                event.start(loop=loop, **kwargs)
+                ignorefunc(ignore, event.start, loop=loop, **kwargs)
         else:
-            self._event[eventid].start(loop=loop, **kwargs)
+            ignorefunc(ignore, self._event[eventid].start, loop=loop, **kwargs)
+
+    def _ignore_exception(self, ignore, func, *args, **kwargs):
+        """docstring for _ignore_exception"""
+        if not ignore:
+            ret = func(*args, **kwargs)
+        else:
+            try:
+                ret = func(*args, **kwargs)
+            except ignore as e:
+                ret = None
+        return ret
 
 
 # ============================================================================
@@ -524,6 +548,12 @@ class RunFirst(Anchor):
 
 
 shutdown = RunLast()
+
+
+recordtime = MultiEvent(RunFirst)
+
+
+recordperiod = MultiEvent(RunFirst)
 
 
 # ============================================================================

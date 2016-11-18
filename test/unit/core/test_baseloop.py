@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# loadlimit/test/unit/core/test_baseloop.py
+# test/unit/core/test_baseloop.py
 # Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
 # This module is released under the MIT License.

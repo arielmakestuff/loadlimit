@@ -1,12 +1,9 @@
-# Module:
-# Submodules:
-# Created:
-# Copyright (C) <date> <fullname>
+# -*- coding: utf-8 -*-
+# test/unit/util/test_loadlimitnamespace.py
+# Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
-# This module is part of the <project name> project and is released under
-# the MIT License: http://opensource.org/licenses/MIT
-"""
-"""
+# This module is released under the MIT License.
+"""Test Namespace class"""
 
 # ============================================================================
 # Imports

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# loadlimit/test/unit/event/test_multievent.py
+# test/unit/event/test_multievent.py
 # Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
 # This module is released under the MIT License.
@@ -489,6 +489,42 @@ def test_add_eventid(testloop, multi):
     assert len(val) == 2
     assert c[1] == 1
     assert c[2] == 1
+
+
+# ============================================================================
+# Test __contains__()
+# ============================================================================
+
+
+@pytest.mark.parametrize('hasevent', [True, False])
+def test_contains(hasevent):
+    """Return True if given eventid exists in the container"""
+    event = MultiEvent()
+    if hasevent:
+        event.__getitem__(42)
+        assert event.__contains__(42)
+        assert 42 in event
+    else:
+        assert not event.__contains__(42)
+        assert 42 not in event
+
+
+# ============================================================================
+# Test __bool__()
+# ============================================================================
+
+
+@pytest.mark.parametrize('hasevents', [True, False])
+def test_bool(hasevents):
+    """Returns True if the container is storing events"""
+    event = MultiEvent()
+    if hasevents:
+        event.__getitem__(42)
+        assert event
+        assert bool(event) is True
+    else:
+        assert not event
+        assert bool(event) is False
 
 
 # ============================================================================
