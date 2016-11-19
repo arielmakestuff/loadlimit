@@ -14,21 +14,13 @@
 # Stdlib imports
 from collections import defaultdict
 from functools import wraps
-from datetime import datetime, timezone
 
 # Third-party imports
 import numpy as np
 
 # Local imports
 from .event import EventNotStartedError, recordtime, recordperiod
-
-
-# ============================================================================
-# Globals
-# ============================================================================
-
-
-UTC = timezone.utc
+from .util import TZ_UTC, now
 
 
 # ============================================================================
@@ -63,9 +55,9 @@ def timecoro(name):
         @wraps(corofunc)
         async def wrapper(*args, **kwargs):
             """Record start and stop time"""
-            start = datetime.now(UTC)
+            start = now(TZ_UTC)
             await corofunc(*args, **kwargs)
-            end = datetime.now(UTC)
+            end = now(TZ_UTC)
 
             delta = end - start
             ms = delta.total_seconds() * 1000

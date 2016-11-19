@@ -13,6 +13,7 @@
 
 # Stdlib imports
 import argparse
+from datetime import datetime, timezone
 from enum import Enum
 import logging
 
@@ -28,6 +29,24 @@ import logging
 
 LogLevel = Enum('LogLevel', [(k, v) for k, v in logging._nameToLevel.items()
                              if k not in ['WARN', 'NOTSET']])
+
+
+TZ_UTC = timezone.utc
+
+
+# ============================================================================
+# Date utils
+# ============================================================================
+
+
+def now(tzinfo=None):
+    """Generate the current datetime.
+
+    Defaults to UTC timezone.
+
+    """
+    tzinfo = TZ_UTC if tzinfo is None else tzinfo
+    return datetime.now(tzinfo)
 
 
 # ============================================================================
