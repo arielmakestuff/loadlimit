@@ -79,7 +79,7 @@ class LoadLimitEvent:
 
     def __init__(self):
         self._event = None
-        self._kwargs = {}
+        self._result = None
         self._tasks = set()
         self._waiting = set()
 
@@ -118,9 +118,9 @@ class LoadLimitEvent:
         self._waiting.clear()
 
         self._event = None
-        if not self._kwargs.done():
-            self._kwargs.cancel()
-        self._kwargs = None
+        if not self._result.done():
+            self._result.cancel()
+        self._result = None
 
     @event_started
     def is_set(self):
@@ -134,7 +134,7 @@ class LoadLimitEvent:
         This will also set the event's result to any given kwargs.
 
         """
-        self._kwargs.set_result(kwargs)
+        self._result.set_result(kwargs)
         self._event.set()
 
     async def wait(self):
@@ -189,7 +189,7 @@ class LoadLimitEvent:
         """Create a new event"""
         if loop is None:
             loop = asyncio.get_event_loop()
-        self._kwargs = f = loop.create_future()
+        self._result = f = loop.create_future()
         self._event = event = Event(loop=loop)
         return (event, f)
 
