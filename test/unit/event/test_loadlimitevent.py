@@ -258,5 +258,39 @@ def test_create_event_default_loop(event_loop):
 
 
 # ============================================================================
+# Test set()
+# ============================================================================
+
+
+@pytest.mark.parametrize('boolval', [True, False])
+def test_set_clear(testloop, boolval):
+    """Call clear() after the event is set."""
+    event = LoadLimitEvent()
+
+    val = []
+
+    @event
+    async def one(result):
+        """one"""
+        val.append(result.v)
+
+    async def run():
+        """run"""
+        assert not event.is_set()
+        event.set(callclear=boolval, v=42)
+        assert event.is_set() is not boolval
+
+    event.start()
+    assert event.started
+
+    t = asyncio.ensure_future(run())
+    testloop.run_until_complete(t)
+
+    assert val == [42]
+
+    event.stop()
+
+
+# ============================================================================
 #
 # ============================================================================

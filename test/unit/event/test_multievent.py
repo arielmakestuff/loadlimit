@@ -35,21 +35,6 @@ pytestmark = pytest.mark.usefixtures('testlogging')
 # ============================================================================
 
 
-@pytest.yield_fixture
-def testloop(event_loop):
-    """Cleanup event_loop run"""
-    yield event_loop
-    f = asyncio.gather(*asyncio.Task.all_tasks(loop=event_loop),
-                       loop=event_loop)
-    f.cancel()
-    try:
-        event_loop.run_until_complete(f)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        event_loop.close()
-
-
 @pytest.fixture
 def multi():
     """docstring for multi"""
@@ -64,7 +49,7 @@ def multi():
 # ============================================================================
 
 
-def test_multiple_events(event_loop):
+def test_multiple_events(testloop):
     """Setting one event does not affect other events in the MultiEvent"""
 
     multi = MultiEvent()
@@ -74,13 +59,11 @@ def test_multiple_events(event_loop):
     @multi(eventid='one')
     async def runone(result):
         """runone"""
-        await multi.wait('one')
         val.append(result.val)
 
     @multi(eventid='two')
     async def runtwo(result):
         """runtwo"""
-        await multi.wait('two')
         val.append(result.val)
 
     async def runall():
@@ -88,19 +71,18 @@ def test_multiple_events(event_loop):
         val.append(0)
         multi.set('one', val=1)
 
-    multi.start(loop=event_loop)
-    f = asyncio.ensure_future(runall(), loop=event_loop)
+    multi.start(loop=testloop)
+
+    f = asyncio.ensure_future(runall())
+    testloop.run_until_complete(f)
+    notdone = [t for t in asyncio.Task.all_tasks()
+               if not t.done()]
+    f = asyncio.gather(*notdone)
+    f.cancel()
     try:
-        event_loop.run_until_complete(f)
-        notdone = [t for t in asyncio.Task.all_tasks(loop=event_loop)
-                   if not t.done()]
-        f = asyncio.gather(*notdone, loop=event_loop)
-        f.cancel()
-        event_loop.run_until_complete(f)
+        testloop.run_until_complete(f)
     except asyncio.CancelledError:
         pass
-    finally:
-        event_loop.close()
 
     assert val == expected
 
@@ -110,7 +92,7 @@ def test_multiple_events(event_loop):
 # ============================================================================
 
 
-def test_multiple_events_set(event_loop):
+def test_multiple_events_set(testloop):
     """Calling set() without eventid sets all events"""
 
     multi = MultiEvent()
@@ -132,12 +114,9 @@ def test_multiple_events_set(event_loop):
         val.add(0)
         multi.set(val=1)
 
-    multi.start(loop=event_loop)
-    f = asyncio.ensure_future(runall(), loop=event_loop)
-    try:
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    multi.start()
+    f = asyncio.ensure_future(runall())
+    testloop.run_until_complete(f)
 
     assert val == expected
 
@@ -148,7 +127,7 @@ def test_multiple_events_set(event_loop):
 
 
 @pytest.mark.parametrize('nocoro', [False, True])
-def test_multiple_events_call(event_loop, nocoro):
+def test_multiple_events_call(testloop, nocoro):
     """Decorating corofuncs without eventid adds to all events"""
     multi = MultiEvent()
     for i in range(3):
@@ -167,12 +146,9 @@ def test_multiple_events_call(event_loop, nocoro):
         """runall"""
         multi.set(val=1)
 
-    multi.start(loop=event_loop)
-    f = asyncio.ensure_future(runall(), loop=event_loop)
-    try:
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    multi.start()
+    f = asyncio.ensure_future(runall())
+    testloop.run_until_complete(f)
 
     assert val == expected
 
@@ -285,13 +261,8 @@ def test_items():
     assert dict(multi.items()) == vals
 
 
-# ============================================================================
-# Test stop()
-# ============================================================================
-
-
 def test_stop_noeventid(testloop):
-    """Call clear() method of every stored event"""
+    """Call stop() method of every stored event"""
     multi = MultiEvent()
     for i in range(5):
         multi.__getitem__(i)
@@ -300,7 +271,7 @@ def test_stop_noeventid(testloop):
     async def runone(result):
         """runone"""
 
-    multi.start(loop=testloop)
+    multi.start()
     assert all(event.started for event in multi.values())
 
     multi.set(v=42)
@@ -336,11 +307,64 @@ def test_stop_eventid(testloop):
 
 
 # ============================================================================
+# Test clear()
+# ============================================================================
+
+
+def test_clear_noeventid(testloop):
+    """Call clear() method of every stored event"""
+    multi = MultiEvent()
+    for i in range(5):
+        multi.__getitem__(i)
+
+    @multi
+    async def runone(result):
+        """runone"""
+
+    multi.start()
+    assert all(event.started for event in multi.values())
+
+    multi.set(v=42)
+    assert all(event.is_set() for event in multi.values())
+
+    multi.clear()
+
+    assert all(not event.is_set() for event in multi.values())
+
+
+def test_clear_eventid(testloop):
+    """Call clear() method of event with given eventid"""
+    multi = MultiEvent()
+    for i in range(5):
+        multi.__getitem__(i)
+
+    @multi
+    async def runone(result):
+        """runone"""
+
+    multi.start(loop=testloop)
+    assert all(event.started for event in multi.values())
+
+    multi.set(v=42)
+    multi.clear(1)
+
+    assert all(event.is_set() for i, event in multi.items()
+               if i != 1)
+    assert not multi[1].is_set()
+
+    # Cleanup
+    for i, event in multi.items():
+        if i != 1:
+            event.stop()
+
+
+# ============================================================================
 # Test is_set()
 # ============================================================================
 
 
-@pytest.mark.parametrize('val', list(range(5)))
+# @pytest.mark.parametrize('val', list(range(5)))
+@pytest.mark.parametrize('val', [4])
 def test_is_set_noeventid(testloop, val):
     """Return dict of all stored event's is_set() value"""
     multi = MultiEvent()
@@ -351,22 +375,22 @@ def test_is_set_noeventid(testloop, val):
     async def one(result):
         """one"""
 
-    multi.start(loop=testloop)
+    multi.start()
     assert multi.is_set() == {i: False for i in range(5)}
-    multi.clear()
+    multi.stop()
 
-    multi(one)
-    multi.start(loop=testloop)
+    # multi(one)
+    multi.start()
     multi.set(val)
     expected = {i: (True if i == val else False) for i in range(5)}
     assert multi.is_set() == expected
-    multi.clear(val)
+    multi.stop(val)
 
     multi(one)
     multi.start(loop=testloop)
     multi.set()
     assert multi.is_set() == {i: True for i in range(5)}
-    multi.clear()
+    multi.stop()
 
 
 def test_is_set_eventid(testloop):
@@ -387,7 +411,7 @@ def test_is_set_eventid(testloop):
     for i, event in multi.items():
         if i != 1:
             assert not event.is_set()
-    multi.clear()
+    multi.stop()
 
 
 # ============================================================================
@@ -417,16 +441,47 @@ def test_wait_noeventid(testloop):
         multi.set(val=1)
 
     t = [
-        asyncio.ensure_future(runall(), loop=testloop),
-        asyncio.ensure_future(waitforme(), loop=testloop)
+        asyncio.ensure_future(runall()),
+        asyncio.ensure_future(waitforme())
     ]
-    f = asyncio.gather(*t, loop=testloop)
-    multi.start(loop=testloop)
+    f = asyncio.gather(*t)
+    multi.start()
 
     testloop.run_until_complete(f)
 
     expected = ([1] * 5) + [0]
     assert val == expected
+
+
+def test_wait_eventid(testloop):
+    """Waits given stored event's wait() method to complete"""
+    multi = MultiEvent()
+    val = []
+    for i in range(5):
+        multi.__getitem__(i)
+
+    @multi
+    async def one(result):
+        """one"""
+        val.append(result.val)
+
+    async def waitforme():
+        """waitforme"""
+        await multi.wait(1)
+        val.append(0)
+
+    async def runall():
+        """runall"""
+        multi.set(val=1)
+
+    t = [asyncio.ensure_future(f()) for f in [runall, waitforme]]
+    f = asyncio.gather(*t)
+    multi.start()
+
+    testloop.run_until_complete(f)
+
+    expected = set([0, 1])
+    assert set(val) == expected
 
 
 # ============================================================================
@@ -450,10 +505,10 @@ def test_add_noeventid(testloop, multi):
         multi.set(val=0)
 
     multi.add(one, two)
-    multi.start(loop=testloop)
+    multi.start()
 
-    t = asyncio.ensure_future(main(), loop=testloop)
-    f = asyncio.gather(t, loop=testloop)
+    t = asyncio.ensure_future(main())
+    f = asyncio.gather(t)
     testloop.run_until_complete(f)
 
     c = Counter(val)
@@ -479,10 +534,10 @@ def test_add_eventid(testloop, multi):
         multi.set(eventid=0, val=0)
 
     multi.add(one, two, eventid=0)
-    multi.start(eventid=0, loop=testloop)
+    multi.start(eventid=0)
 
-    t = asyncio.ensure_future(main(), loop=testloop)
-    f = asyncio.gather(t, loop=testloop)
+    t = asyncio.ensure_future(main())
+    f = asyncio.gather(t)
     testloop.run_until_complete(f)
 
     c = Counter(val)
@@ -547,8 +602,8 @@ def test_pending_calls(testloop):
         event.set(val=42)
 
     event.__getitem__('one')
-    event.start(loop=testloop)
-    t = asyncio.ensure_future(run(), loop=testloop)
+    event.start()
+    t = asyncio.ensure_future(run())
     testloop.run_until_complete(t)
 
     assert val == [42]

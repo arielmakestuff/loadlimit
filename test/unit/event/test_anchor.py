@@ -35,7 +35,7 @@ pytestmark = pytest.mark.usefixtures('testlogging')
 
 
 @pytest.mark.parametrize('anchorcls', [RunLast, RunFirst])
-def test_schedule_tasks_hastasks(event_loop, anchorcls):
+def test_schedule_tasks_hastasks(testloop, anchorcls):
     """Any tasks not yet waiting for the event are scheduled"""
     event = anchorcls()
     val = {1: None}
@@ -45,14 +45,13 @@ def test_schedule_tasks_hastasks(event_loop, anchorcls):
         """one"""
         val[1] = 'coro ran: one'
 
-    event.start(loop=event_loop)
-    event.set()
+    async def run():
+        event.set()
 
-    f = asyncio.gather(*event.waiting, loop=event_loop)
-    try:
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    event.start(loop=testloop)
+
+    t = asyncio.ensure_future(run(), loop=testloop)
+    testloop.run_until_complete(t)
 
     assert val == {1: 'coro ran: one'}
 
@@ -62,9 +61,8 @@ def test_schedule_tasks_hastasks(event_loop, anchorcls):
 # ============================================================================
 
 
-def test_runlast_runtasks_first(event_loop):
+def test_runlast_runtasks_first(testloop):
     """Run all waiting tasks before the designated last coro"""
-    asyncio.set_event_loop(event_loop)
     event = RunLast()
     val = []
     expected = (set(['one', 'two', 'three']), 'four')
@@ -89,22 +87,24 @@ def test_runlast_runtasks_first(event_loop):
         """one"""
         val.append(result.v.format('four'))
 
-    event.start(loop=event_loop)
-    event.set(v='{}')
-    try:
-        f = asyncio.gather(*asyncio.Task.all_tasks(loop=event_loop),
-                           loop=event_loop)
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    async def run():
+        """run"""
+        event.set(v='{}')
+
+    event.start(loop=testloop)
+    f = asyncio.gather(
+        asyncio.ensure_future(run(), loop=testloop),
+        *asyncio.Task.all_tasks(loop=testloop),
+        loop=testloop
+    )
+    testloop.run_until_complete(f)
 
     result = (set(val[:-1]), val[-1])
     assert result == expected
 
 
-def test_runlast_notasks(event_loop):
+def test_runlast_notasks(testloop):
     """Run with only the last coro"""
-    asyncio.set_event_loop(event_loop)
     event = RunLast()
     val = []
     expected = ['one']
@@ -114,14 +114,14 @@ def test_runlast_notasks(event_loop):
         """one"""
         val.append(result.v.format('one'))
 
-    event.start(loop=event_loop)
-    event.set(v='{}')
-    try:
-        f = asyncio.gather(*asyncio.Task.all_tasks(loop=event_loop),
-                           loop=event_loop)
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    async def run():
+        """run"""
+        event.set(v='{}')
+
+    event.start(loop=testloop)
+    t = asyncio.Task.all_tasks(loop=testloop)
+    f = asyncio.gather(run(), *t, loop=testloop)
+    testloop.run_until_complete(f)
 
     assert val == expected
 
@@ -131,9 +131,9 @@ def test_runlast_notasks(event_loop):
 # ============================================================================
 
 
-def test_runfirst_runtasks_last(event_loop):
+def test_runfirst_runtasks_last(testloop):
     """Run all waiting tasks after the designated first coro"""
-    asyncio.set_event_loop(event_loop)
+    asyncio.set_event_loop(testloop)
     event = RunFirst()
     val = []
     expected = ('one', set(['two', 'three', 'four']))
@@ -158,22 +158,22 @@ def test_runfirst_runtasks_last(event_loop):
         """one"""
         val.append(result.v.format('four'))
 
-    event.start(loop=event_loop)
-    event.set(v='{}')
-    try:
-        f = asyncio.gather(*asyncio.Task.all_tasks(loop=event_loop),
-                           loop=event_loop)
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    async def run():
+        """run"""
+        event.set(v='{}')
+
+    event.start(loop=testloop)
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks(loop=testloop),
+                       loop=testloop)
+    testloop.run_until_complete(f)
 
     result = (val[0], set(val[1:]))
     assert result == expected
 
 
-def test_runfirst_notasks(event_loop):
+def test_runfirst_notasks(testloop):
     """Run with only the first coro"""
-    asyncio.set_event_loop(event_loop)
+    asyncio.set_event_loop(testloop)
     event = RunFirst()
     val = []
     expected = ['one']
@@ -183,14 +183,13 @@ def test_runfirst_notasks(event_loop):
         """one"""
         val.append(result.v.format('one'))
 
-    event.start(loop=event_loop)
-    event.set(v='{}')
-    try:
-        f = asyncio.gather(*asyncio.Task.all_tasks(loop=event_loop),
-                           loop=event_loop)
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    async def run():
+        event.set(v='{}')
+
+    event.start(loop=testloop)
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks(loop=testloop),
+                       loop=testloop)
+    testloop.run_until_complete(f)
 
     assert val == expected
 

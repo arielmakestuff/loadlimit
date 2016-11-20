@@ -139,7 +139,7 @@ class LoadLimitEvent:
         return self._event.is_set()
 
     @event_started
-    def set(self, **kwargs):
+    def set(self, *, callclear=False, **kwargs):
         """Set internal flag to true.
 
         This will also set the event's result to any given kwargs.
@@ -147,6 +147,8 @@ class LoadLimitEvent:
         """
         self._result.set_result(kwargs)
         self._event.set()
+        if callclear:
+            self.clear()
 
     async def wait(self):
         """Block until the internal flag is True
@@ -211,7 +213,6 @@ class LoadLimitEvent:
         self._waiting.update(
             ensure_future(runtask(corofunc, result, kwargs), loop=loop)
             for corofunc in tasks)
-        tasks.clear()
 
     async def runtask(self, corofunc, future, kwargs):
         """Wait for the event and then run the task"""
@@ -490,36 +491,38 @@ class Anchor(LoadLimitEvent):
         if anchorfunc is None:
             super()._schedule_tasks(tasks, result, kwargs, loop)
         else:
-            self._waiting = waiting = {t for t in tasks if t != anchorfunc}
+            waiting = {t for t in tasks if t != anchorfunc}
             ensure_future(
                 self.anchor(anchorfunc, anchortype, waiting, result,
                             kwargs, loop),
                 loop=loop)
-            tasks.clear()
-            tasks.add(anchorfunc)
 
     async def anchor(self, corofunc, anchortype, tasks, future, kwargs, loop):
         """Wait for the event and all other tasks before running corofunc"""
         await self.wait()
-        result = future.result()
+        result = Namespace(**future.result())
 
         # Run the first coro
         if anchortype == AnchorType.first:
-            await corofunc(Namespace(**result), **kwargs)
+            await corofunc(result, **kwargs)
 
         # schedule all tasks
         if tasks:
-            self._waiting = set()
-            super()._schedule_tasks(tasks, future, kwargs, loop)
+            self._waiting = waiting = {
+                ensure_future(coro(result, **kwargs), loop=loop)
+                for coro in tasks
+            }
 
         # Wait for all other tasks to finish
         waiting = self._waiting
         if waiting:
             await asyncio.gather(*waiting, loop=loop)
 
+        waiting.clear()
+
         # Run the last coro
         if anchortype == AnchorType.last:
-            await corofunc(Namespace(**result), **kwargs)
+            await corofunc(result, **kwargs)
 
     @property
     def anchortype(self):
