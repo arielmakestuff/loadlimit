@@ -427,7 +427,6 @@ class Anchor(LoadLimitEvent):
         super().__init__()
         self._anchortype = None
         self._anchorfunc = (None, None)
-        self._anchortask = None
 
     def __call__(self, corofunc=None, anchortype=None):
         """Decorator to add a corofunc to the event"""
@@ -460,7 +459,7 @@ class Anchor(LoadLimitEvent):
             super()._schedule_tasks(tasks, result, kwargs, loop)
         else:
             self._waiting = waiting = {t for t in tasks if t != anchorfunc}
-            self._anchortask = ensure_future(
+            ensure_future(
                 self.anchor(anchorfunc, anchortype, waiting, result,
                             kwargs, loop),
                 loop=loop)
@@ -507,11 +506,6 @@ class Anchor(LoadLimitEvent):
     def anchorfunc(self):
         """Get current anchor function"""
         return self._anchorfunc[1]
-
-    @property
-    def anchortask(self):
-        """Get anchor task"""
-        return self._anchortask
 
 
 # ============================================================================

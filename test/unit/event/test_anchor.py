@@ -249,48 +249,44 @@ def test_anchorfunc():
 
 
 # ============================================================================
-# Test anchortask
+# Test exception handling in anchor func
 # ============================================================================
 
 
-def test_anchortask_none():
-    """Return None if no anchorfunc"""
-    event = Anchor()
-    assert event.anchortask is None
+# Originally, exceptions raised in the anchor func will not be caught by the
+# exception handler. This is due to the task created by ensure_future being
+# assigned to a variable that prevents the task from being deleted. The fix
+# that the below tests is that anchor exceptions are now caught by the
+# exception handler.
 
+def test_anchorfunc_exception(testloop):
+    """Exceptions raised in anchor functions are caught"""
 
-def test_anchortask_notsched():
-    """Return None if anchorfunc not scheduled"""
-    event = Anchor()
+    event = RunFirst()
+    caught = None
 
-    @event(anchortype=AnchorType.first)
-    async def noop(result):
-        """noop"""
+    def goterr(loop, context):
+        """Handle error"""
+        nonlocal caught
+        caught = context['exception']
 
-    assert event.anchorfunc == noop
-    assert event.anchortask is None
+    @event(runfirst=True)
+    async def anchor(result):
+        """Raise an exception"""
+        raise Exception('ANCHOR')
 
+    async def run():
+        """run"""
+        event.set()
 
-def test_anchortask_sched(event_loop):
-    """Return anchorfunc task if anchorfunc has been scheduled"""
-    event = Anchor()
+    testloop.set_exception_handler(goterr)
+    event.start(loop=testloop)
+    t = asyncio.ensure_future(run())
+    testloop.run_until_complete(t)
 
-    @event(anchortype=AnchorType.first)
-    async def noop(result):
-        """noop"""
-        assert event.anchortask is not None
-
-    event.start(loop=event_loop)
-    event.set()
-
-    tasks = asyncio.Task.all_tasks(loop=event_loop)
-    assert len(tasks) == 1
-
-    f = asyncio.gather(*tasks, loop=event_loop)
-    try:
-        event_loop.run_until_complete(f)
-    finally:
-        event_loop.close()
+    assert caught is not None
+    assert isinstance(caught, Exception)
+    assert caught.args == ('ANCHOR', )
 
 
 # ============================================================================
