@@ -292,5 +292,35 @@ def test_set_clear(testloop, boolval):
 
 
 # ============================================================================
+# Test rescheduling tasks
+# ============================================================================
+
+
+def test_reschedule(testloop):
+    """Reschedule until the reschedule option is changed to False"""
+    event = LoadLimitEvent()
+    val = 0
+
+    @event
+    async def repeatme(result):
+        """Keep repeating until val == 5"""
+        nonlocal val
+        if val == 5:
+            event.option.reschedule = False
+            return
+        val = val + result.val
+
+    async def run():
+        """run"""
+        event.set(val=1)
+
+    event.start(reschedule=True)
+    t = asyncio.ensure_future(run())
+    testloop.run_until_complete(t)
+
+    assert val == 5
+
+
+# ============================================================================
 #
 # ============================================================================

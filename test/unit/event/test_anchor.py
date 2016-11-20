@@ -13,6 +13,7 @@
 
 # Stdlib imports
 import asyncio
+from collections import defaultdict
 
 # Third-party imports
 import pytest
@@ -286,6 +287,46 @@ def test_anchorfunc_exception(testloop):
     assert caught is not None
     assert isinstance(caught, Exception)
     assert caught.args == ('ANCHOR', )
+
+
+# ============================================================================
+# Test reschedule
+# ============================================================================
+
+
+def test_reschedule(testloop):
+    """Reschedule until reschedule option is False"""
+    event = RunFirst()
+    val = defaultdict(lambda: 0)
+
+    @event
+    async def one(result):
+        """one"""
+        val['one'] += 1 + result.val
+
+    @event
+    async def two(result):
+        """two"""
+        val['two'] += 2 + result.val
+
+    @event(runfirst=True)
+    async def first(result):
+        """run first"""
+        val['first'] += result.val
+        if val['first'] == 5:
+            event.option.reschedule = False
+
+    async def run():
+        """run"""
+        event.set(val=1)
+
+    expected = dict(first=5, one=10, two=15)
+
+    event.start(reschedule=True)
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks())
+    testloop.run_until_complete(f)
+
+    assert val == expected
 
 
 # ============================================================================
