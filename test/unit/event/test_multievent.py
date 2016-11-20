@@ -528,5 +528,32 @@ def test_bool(hasevents):
 
 
 # ============================================================================
+# Test pending calls
+# ============================================================================
+
+
+def test_pending_calls(testloop):
+    """Auto-assign tasks to new tasks created in multievent"""
+    event = MultiEvent()
+    val = []
+
+    @event
+    async def one(result):
+        """one"""
+        val.append(result.val)
+
+    async def run():
+        """run"""
+        event.set(val=42)
+
+    event.__getitem__('one')
+    event.start(loop=testloop)
+    t = asyncio.ensure_future(run(), loop=testloop)
+    testloop.run_until_complete(t)
+
+    assert val == [42]
+
+
+# ============================================================================
 #
 # ============================================================================

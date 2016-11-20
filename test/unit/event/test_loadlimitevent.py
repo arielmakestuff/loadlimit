@@ -201,12 +201,12 @@ def test_wait_notstarted(event_loop):
 # ============================================================================
 
 
-@pytest.mark.parametrize('val', [42, lambda: None, max, LoadLimitEvent.add])
+@pytest.mark.parametrize('val', [42, 4.2, '42', (42, ), [42]])
 def test_add_notcoro(val):
     """Raise TypeError if adding an object that's not a coroutine"""
     event = LoadLimitEvent()
 
-    expected = ('tasks expected coroutine, got {} instead'.
+    expected = ('tasks expected callable, got {} instead'.
                 format(type(val).__name__))
     with pytest.raises(TypeError) as err:
         event.add(val)

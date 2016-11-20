@@ -13,7 +13,7 @@
 
 # Stdlib imports
 import asyncio
-from asyncio import Event, ensure_future, iscoroutinefunction
+from asyncio import Event, ensure_future
 from collections import defaultdict
 from enum import Enum
 from functools import wraps
@@ -165,8 +165,8 @@ class LoadLimitEvent:
         def itertasks(alltasks):
             """Verify each task is a coro func"""
             for t in alltasks:
-                if not iscoroutinefunction(t):
-                    msg = 'tasks expected coroutine, got {} instead'
+                if not callable(t):
+                    msg = 'tasks expected callable, got {} instead'
                     raise TypeError(msg.format(type(t).__name__))
                 yield t
 
@@ -254,6 +254,7 @@ class MultiEvent:
         default_factory = self.validate_factory(default_factory)
         self._event = defaultdict(default_factory)
         self._loop = None
+        self._pending_call = []
 
     def __iter__(self):
         """Iterate over all eventids"""
@@ -294,6 +295,8 @@ class MultiEvent:
             return corofunc
 
         if eventid is None:
+            self._pending_call.append(
+                dict(corofunc=corofunc, args=args, kwargs=kwargs))
             addfunc = funclist.append
             for event in self._event.values():
                 ret = event.__call__(corofunc, *args, **kwargs)
@@ -315,6 +318,11 @@ class MultiEvent:
                 msg = ('default_factory function returned {}, '
                        'expected LoadLimitEvent')
                 raise TypeError(msg.format(type(event).__name__))
+
+            # Process any pending calls
+            for callargs in self._pending_call:
+                event.__call__(callargs['corofunc'], *callargs['args'],
+                               **callargs['kwargs'])
             return event
 
         return validate
