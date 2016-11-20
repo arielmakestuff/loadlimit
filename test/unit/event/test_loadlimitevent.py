@@ -36,9 +36,9 @@ pytestmark = pytest.mark.usefixtures('testlogging')
 # ============================================================================
 
 
-@pytest.mark.parametrize('funcname', ['clear', 'is_set', 'set'])
+@pytest.mark.parametrize('funcname', ['clear', 'is_set', 'set', 'stop'])
 def test_event_started_notstarted(funcname):
-    """Error if clear called but event not started yet"""
+    """Error if method called but event not started yet"""
     event = LoadLimitEvent()
     with pytest.raises(EventNotStartedError):
         getattr(event, funcname)()
@@ -87,12 +87,12 @@ def test_iter(event_loop):
 
 
 # ============================================================================
-# Test clear()
+# Test stop()
 # ============================================================================
 
 
-def test_clear_canceltasks(event_loop):
-    """clear() cancels all waiting tasks"""
+def test_stop_canceltasks(event_loop):
+    """stop() cancels all waiting tasks"""
 
     event = LoadLimitEvent()
 
@@ -106,7 +106,7 @@ def test_clear_canceltasks(event_loop):
         assert event.started
         assert len(tasks) == 1
         assert all(not t.done() for t in tasks)
-        event.clear()
+        event.stop()
         await asyncio.gather(*tasks, loop=event_loop)
         assert not event.waiting
         assert not event.started
@@ -124,6 +124,29 @@ def test_clear_canceltasks(event_loop):
         pass
     finally:
         event_loop.close()
+
+
+def test_stop_notasks(testloop):
+    """stop() ignores tasks that have been completed"""
+
+    event = LoadLimitEvent()
+
+    @event
+    async def one(result, **kwargs):
+        """First event coro"""
+        assert result.called_from == 'run'
+
+    async def run():
+        """run"""
+        event.set(called_from='run')
+
+    event.start()
+    t = asyncio.ensure_future(run())
+    testloop.run_until_complete(t)
+
+    assert event.started
+    event.stop()
+    assert not event.started
 
 
 # ============================================================================

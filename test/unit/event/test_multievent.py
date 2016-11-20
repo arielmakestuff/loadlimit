@@ -286,11 +286,11 @@ def test_items():
 
 
 # ============================================================================
-# Test clear()
+# Test stop()
 # ============================================================================
 
 
-def test_clear_noeventid(testloop):
+def test_stop_noeventid(testloop):
     """Call clear() method of every stored event"""
     multi = MultiEvent()
     for i in range(5):
@@ -304,13 +304,13 @@ def test_clear_noeventid(testloop):
     assert all(event.started for event in multi.values())
 
     multi.set(v=42)
-    multi.clear()
+    multi.stop()
 
     assert all(not event.started for event in multi.values())
 
 
-def test_clear_eventid(testloop):
-    """Call clear() method of event with given eventid"""
+def test_stop_eventid(testloop):
+    """Call stop() method of event with given eventid"""
     multi = MultiEvent()
     for i in range(5):
         multi.__getitem__(i)
@@ -323,7 +323,7 @@ def test_clear_eventid(testloop):
     assert all(event.started for event in multi.values())
 
     multi.set(v=42)
-    multi.clear(1)
+    multi.stop(1)
 
     assert all(event.started for i, event in multi.items()
                if i != 1)
@@ -332,7 +332,7 @@ def test_clear_eventid(testloop):
     # Cleanup
     for i, event in multi.items():
         if i != 1:
-            event.clear()
+            event.stop()
 
 
 # ============================================================================

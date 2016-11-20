@@ -101,14 +101,13 @@ class LoadLimitEvent:
         return addcoro(corofunc)
 
     @event_started
-    def clear(self):
-        """Reset internal flag to False.
+    def stop(self):
+        """Stop the event
 
-        Essentially stops the event.
+        This calls clear() first before stopping the event.
 
         """
-        event = self._event
-        event.clear()
+        self.clear()
 
         # Cancel tasks already waiting for the event
         waiting = {t for t in self._waiting if not t.done()}
@@ -118,9 +117,21 @@ class LoadLimitEvent:
         self._waiting.clear()
 
         self._event = None
-        if not self._result.done():
-            self._result.cancel()
+        self._result.cancel()
         self._result = None
+
+    @event_started
+    def clear(self):
+        """Reset internal flag to False.
+
+        This will also create a brand new future if the current future is not
+        done.
+
+        """
+        self._event.clear()
+        if self._result.done():
+            loop = asyncio.get_event_loop()
+            self._result = loop.create_future()
 
     @event_started
     def is_set(self):
@@ -319,6 +330,19 @@ class MultiEvent:
     def items(self):
         """Returns an iterator over event (key, value) pairs."""
         return self._event.items()
+
+    def stop(self, eventid=None, ignore=None):
+        """Stop the event
+
+        This calls clear() first before stopping the event.
+
+        """
+        ignorefunc = self._ignore_exception
+        if eventid is None:
+            for event in self._event.values():
+                ignorefunc(ignore, event.stop)
+        else:
+            ignorefunc(ignore, self._event[eventid].stop)
 
     def clear(self, eventid=None, ignore=None):
         """Reset the given event's internal flag to False.
