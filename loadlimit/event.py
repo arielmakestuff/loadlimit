@@ -300,22 +300,28 @@ class MultiEvent:
         """
         funclist = []
 
+        def addpending(corofunc):
+            """Add pending call"""
+            self._pending_call.append(dict(corofunc=corofunc, args=args,
+                                           kwargs=kwargs))
+
         def addcoro(corofunc):
             """Add corofunc"""
+            addpending(corofunc)
             for func in funclist:
                 func(corofunc)
             return corofunc
 
         if eventid is None:
-            self._pending_call.append(
-                dict(corofunc=corofunc, args=args, kwargs=kwargs))
             addfunc = funclist.append
             for event in self._event.values():
                 ret = event.__call__(corofunc, *args, **kwargs)
                 if corofunc is None:
                     addfunc(ret)
             if corofunc is None:
-                return addcoro
+                corofunc = addcoro
+            else:
+                addpending(corofunc)
             return corofunc
         else:
             return self._event[eventid].__call__(corofunc, *args, **kwargs)

@@ -610,5 +610,36 @@ def test_pending_calls(testloop):
 
 
 # ============================================================================
+# Test __call__()
+# ============================================================================
+
+
+@pytest.mark.parametrize('eventid', ['one', None])
+def test_add_pending_corofunc(testloop, eventid):
+    """Add corofunc when __call__ used to set kwargs"""
+    event = MultiEvent(RunLast)
+    val = []
+
+    @event(eventid=eventid, runlast=True)
+    async def one(result):
+        """one"""
+        val.append(result.val)
+
+    async def run():
+        """run"""
+        event.set(val=1)
+
+    # Add an event and start it
+    event.__getitem__('one')
+    event.start()
+
+    # Run the loop
+    t = asyncio.ensure_future(run())
+    testloop.run_until_complete(t)
+
+    assert val == [1]
+
+
+# ============================================================================
 #
 # ============================================================================
