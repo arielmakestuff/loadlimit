@@ -600,12 +600,6 @@ class RunFirst(Anchor):
 shutdown = RunLast()
 
 
-recordtime = MultiEvent(RunFirst)
-
-
-recordperiod = MultiEvent(RunFirst)
-
-
 # ============================================================================
 #
 # ============================================================================

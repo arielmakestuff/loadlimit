@@ -19,7 +19,8 @@ from collections import Counter
 import pytest
 
 # Local imports
-from loadlimit.event import MultiEvent, LoadLimitEvent, RunLast
+from loadlimit.event import (NoEventTasksError, MultiEvent, LoadLimitEvent,
+                             RunLast)
 
 
 # ============================================================================
@@ -638,6 +639,25 @@ def test_add_pending_corofunc(testloop, eventid):
     testloop.run_until_complete(t)
 
     assert val == [1]
+
+
+# ============================================================================
+# Test start
+# ============================================================================
+
+
+def test_start_ignore():
+    """Ignore any exceptions raised when starting a multi event"""
+    event = MultiEvent()
+
+    # Setup empty events
+    for i in range(5):
+        event.__getitem__(i)
+
+    event.start(ignore=NoEventTasksError)
+
+    for i in range(5):
+        assert not event[i].started
 
 
 # ============================================================================

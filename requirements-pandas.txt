@@ -1,0 +1,6 @@
+# Recommended dependencies for pandas
+# numexpr==2.6.1
+# bottleneck==1.2.0
+
+# Optional dependencies for pandas
+# tables==3.3.0
