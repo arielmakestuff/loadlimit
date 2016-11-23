@@ -27,6 +27,13 @@ import pytest
 
 
 @pytest.fixture
+def datadir():
+    """Return the full datadir path"""
+    rootdir = pytest.config.rootdir
+    return rootdir / 'test' / 'data'
+
+
+@pytest.fixture
 def testlogging(caplog):
     """Initializes log level for the test"""
     caplog.set_level(logging.INFO)
