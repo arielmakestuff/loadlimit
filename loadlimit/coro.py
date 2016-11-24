@@ -13,11 +13,13 @@
 
 # Stdlib imports
 from asyncio import sleep
+from datetime import timedelta
 
 # Third-party imports
 
 # Local imports
 from .util import now, TZ_UTC
+from . import event
 
 
 # ============================================================================
@@ -91,6 +93,17 @@ async def wait_until(end, future=None, **kwargs):
 
     if future is not None:
         future.set_result(kwargs)
+
+
+async def maxruntime(delta, *, future=None, **kwargs):
+    """Set shutdown event once timedelta delta has passed"""
+    if not isinstance(delta, timedelta):
+        msg = 'delta expected timedelta, got {} instead'
+        raise TypeError(msg.format(type(delta).__name__))
+    current = now()
+    end_date = current + delta
+    await wait_until(end_date, future=future, **kwargs)
+    event.shutdown.set(exitcode=0)
 
 
 # ============================================================================
