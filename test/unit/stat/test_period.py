@@ -12,6 +12,8 @@
 
 
 # Stdlib imports
+from asyncio import Lock
+from threading import Lock as TLock
 
 # Third-party imports
 import pytest
@@ -117,6 +119,37 @@ async def test_aclearvals_key():
             assert len(v) == 0
         else:
             assert len(v) == 5
+
+
+# ============================================================================
+# Test period lock
+# ============================================================================
+
+
+def test_period_lockarg():
+    """Use custom Lock instance with Period"""
+    mylock = Lock()
+    p = Period(lock=mylock)
+    assert p.lock is mylock
+
+
+def test_period_defaultlock():
+    """Create new Lock object if lock not specified"""
+    p = Period()
+    assert p.lock
+    assert isinstance(p.lock, Lock)
+    assert not p.lock.locked()
+
+
+@pytest.mark.parametrize('obj', [42, 4.2, '42', [42], (4.2, ), TLock])
+def test_period_lockarg_notlock(obj):
+    """Non- asyncio.Lock objects raises an error"""
+    expected = ('lock expected asyncio.Lock, got {} instead'.
+                format(type(obj).__name__))
+    with pytest.raises(TypeError) as err:
+        Period(lock=obj)
+
+    assert err.value.args == (expected, )
 
 
 # ============================================================================

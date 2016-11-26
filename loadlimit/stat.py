@@ -12,6 +12,7 @@
 
 
 # Stdlib imports
+from asyncio import Lock
 from collections import defaultdict, namedtuple
 from functools import wraps
 
@@ -41,8 +42,14 @@ recordperiod = MultiEvent(RunFirst)
 class Period(defaultdict):
     """Store time series data by key"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(list, *args, **kwargs)
+    def __init__(self, *, lock=None):
+        # Error check lock arg
+        if not isinstance(lock, (Lock, type(None))):
+            msg = 'lock expected asyncio.Lock, got {} instead'
+            raise TypeError(msg.format(type(lock).__name__))
+
+        super().__init__(list)
+        self._lock = Lock() if lock is None else lock
         self.numdata = 0
         self.start_date = None
         self.end_date = None
@@ -86,6 +93,11 @@ class Period(defaultdict):
 
         # This automatically sets numdata to the correct value
         await self.atotal()
+
+    @property
+    def lock(self):
+        """Retrieve the dict's lock"""
+        return self._lock
 
 
 # ============================================================================
@@ -131,15 +143,16 @@ async def updateperiod(data, *, statsdict=None):
     name = data.eventid
     start, end = Timestamp(data.start), Timestamp(data.end)
     delta = end - start
-    if statsdict.start_date is None:
-        statsdict.start_date = start
-    statsdict.end_date = end
-    s = Series([start, end, delta], index=['start', 'end', 'delta'])
+    with (await statsdict.lock):
+        if statsdict.start_date is None:
+            statsdict.start_date = start
+        statsdict.end_date = end
+        s = Series([start, end, delta], index=['start', 'end', 'delta'])
 
-    # In-memory dict
-    slist = statsdict[name]
-    slist.append(s)
-    statsdict.numdata = statsdict.numdata + 1
+        # In-memory dict
+        slist = statsdict[name]
+        slist.append(s)
+        statsdict.numdata = statsdict.numdata + 1
 
 
 # ============================================================================
