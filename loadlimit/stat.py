@@ -16,11 +16,13 @@ from collections import defaultdict, namedtuple
 from functools import wraps
 
 # Third-party imports
+import numpy as np
+import pandas as pd
 from pandas import DataFrame, Series, Timestamp
 
 # Local imports
 from .event import EventNotStartedError, MultiEvent, RunFirst
-from .util import aiter, now
+from .util import aiter, Namespace, now
 
 
 # ============================================================================
@@ -140,20 +142,84 @@ async def updateperiod(data, *, statsdict=None):
     statsdict.numdata = statsdict.numdata + 1
 
 
-def periodresults(statsdict):
-    """Create results from period statsdict"""
-    # Dates
-    start = statsdict.start_date
-    end = statsdict.end_date
+# ============================================================================
+# Result classes
+# ============================================================================
 
-    # Duration (in seconds)
-    duration = (end - start).total_seconds()
 
-    results = {}
-    index = ['Total', 'Median', 'Average', 'Min', 'Max', 'Rate']
-    ResultType = namedtuple('ResultType', [n.lower() for n in index])
+class Result:
+    """Calculate result DataFrame from a Period"""
 
-    for name, slist in statsdict.items():
+    def __init__(self, statsdict=None):
+        self._statsdict = Period() if statsdict is None else statsdict
+        self._vals = Namespace()
+
+    def __iter__(self):
+        for name, slist in self._statsdict.items():
+            yield name, slist
+
+    def __enter__(self):
+        """Start calculating the result"""
+        statsdict = self.statsdict
+        vals = self.vals
+        vals.start = statsdict.start_date
+        vals.end = statsdict.end_date
+        return self
+
+    def __exit__(self, errtype, err, errtb):
+        """Finish calculating the result"""
+        raise NotImplementedError
+
+    def __call__(self):
+        """Calculate the result"""
+        calcfunc = self.calculate
+        vals = self.vals
+        with self:
+            for name, slist in self:
+                calcfunc(name, slist)
+
+        return vals.results
+
+    def calculate(self, name, slist):
+        """Calculate results"""
+        raise NotImplementedError
+
+    @property
+    def statsdict(self):
+        """Return stored period statsdict"""
+        return self._statsdict
+
+    @property
+    def vals(self):
+        """Return value namespace"""
+        return self._vals
+
+
+class Total(Result):
+    """Calculate totals"""
+
+    def __enter__(self):
+        ret = super().__enter__()
+        vals = self.vals
+
+        # Duration (in seconds
+        vals.duration = (vals.end - vals.start).total_seconds()
+        vals.results = {}
+
+        vals.index = i = ['Total', 'Median', 'Average', 'Min', 'Max', 'Rate']
+        vals.resultcls = namedtuple('ResultType', [n.lower() for n in i])
+        return ret
+
+    def __exit__(self, errtype, err, errtb):
+        """Finish calculations and save result"""
+        results = self.vals.results
+        dfindex = list(sorted(results, key=lambda k: k))
+        data = [results[v] for v in dfindex]
+        self.vals.results = DataFrame(data, index=dfindex)
+
+    def calculate(self, name, slist):
+        """Calculate results"""
+        vals = self.vals
 
         # Number of iterations
         numiter = len(slist)
@@ -167,15 +233,85 @@ def periodresults(statsdict):
         for val in [delta.median(), delta.mean(), delta.min(),
                     delta.max()]:
             r.append(val.total_seconds() * 1000)
-        r.append(numiter / duration)
-        r = ResultType(*r)
-        results[name] = Series(r, index=index)
+        r.append(numiter / vals.duration)
+        r = vals.resultcls(*r)
+        vals.results[name] = Series(r, index=vals.index)
 
-    # Create result dataframe
-    dfindex = list(sorted(results, key=lambda k: k))
-    vals = [results[v] for v in dfindex]
-    df = DataFrame(vals, index=dfindex)
-    return df
+
+class TimeSeries(Result):
+    """Calculate time series results"""
+
+    def __enter__(self):
+        ret = super().__enter__()
+        vals = self.vals
+
+        # Dates
+        start = vals.start
+        end = vals.end
+
+        date_array = np.linspace(start.value, end.value, vals.periods)
+        vals.daterange = pd.to_datetime(date_array)
+
+        vals.response_result = {}
+        vals.rate_result = {}
+        return ret
+
+    def __exit__(self, errtype, err, errtb):
+        """Finish calculations and save result"""
+        vals = self.vals
+        response_result = vals.response_result
+        rate_result = vals.rate_result
+
+        # Create response dataframe
+        dfindex = list(sorted(response_result, key=lambda k: k))
+        data = [response_result[name] for name in dfindex]
+        df_response = DataFrame(data, index=dfindex).fillna(0)
+
+        # Create rate dataframe
+        data = [rate_result[name] for name in dfindex]
+        df_rate = DataFrame(data, index=dfindex).fillna(0)
+
+        # Return both dataframes
+        vals.results = (df_response, df_rate)
+        for n in ['response_result', 'rate_result']:
+            delattr(vals, n)
+
+    def __call__(self, *, periods=1):
+        self.vals.periods = periods
+        return super().__call__()
+
+    def calculate(self, name, slist):
+        """Calculate results"""
+        vals = self.vals
+
+        response = []
+        rate = []
+
+        # Number of iterations
+        numiter = len(slist)
+
+        # Create dataframe out of the timeseries and get average response time
+        # for each determined datetime period
+        df = DataFrame(slist, index=list(range(numiter)))
+        startpoint = vals.start
+        for d in vals.daterange:
+            d = Timestamp(d, tz='UTC')
+            delta = df.query('end > @startpoint and end <= @d')['delta']
+
+            # Average response times
+            avg_response = delta.mean().total_seconds() * 1000
+            response.append(avg_response)
+
+            # Iterations per second
+            duration = (d - startpoint).total_seconds()
+            iter_per_sec = 0 if duration <= 0 else len(delta) / duration
+            rate.append(iter_per_sec)
+
+            startpoint = d
+
+        daterange = vals.daterange
+        vals.response_result[name] = Series(response, index=daterange)
+        vals.rate_result[name] = Series(rate, index=daterange)
 
 
 # ============================================================================

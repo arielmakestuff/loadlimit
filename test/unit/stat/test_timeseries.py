@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-# test/unit/stat/test_updateperiod.py
+# test/unit/stat/test_timeseris.py
 # Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
 # This module is released under the MIT License.
 
-"""Test updateperiod"""
+"""Test timeseries()"""
 
 # ============================================================================
 # Imports
@@ -13,15 +13,13 @@
 
 # Stdlib imports
 import asyncio
-# from functools import partial
-
 # Third-party imports
 from pandas import DataFrame
 
 # Local imports
 from loadlimit.core import BaseLoop
 from loadlimit.event import NoEventTasksError, shutdown
-from loadlimit.stat import recordperiod, timecoro, Total
+from loadlimit.stat import recordperiod, timecoro, TimeSeries
 from loadlimit.util import aiter
 
 
@@ -30,16 +28,9 @@ from loadlimit.util import aiter
 # ============================================================================
 
 
-def test_updateperiod():
-    """updateperiod updates statsdict with timeseries data points"""
-
-    # Setup uvloop
-    # asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-    results = Total()
-
-    # Create recordperiod anchor that updates stats
-    # recordperiod(partial(updateperiod, stats), runfirst=True)
+def test_return_two_df():
+    """Timeseries generates 2 dataframes"""
+    results = TimeSeries()
 
     # Create coro to time
     @timecoro('churn')
@@ -49,7 +40,7 @@ def test_updateperiod():
 
     async def run():
         """run"""
-        async for i in aiter(range(1000)):
+        async for i in aiter(range(500)):
             await churn(i)
         shutdown.set(exitcode=0)
 
@@ -63,9 +54,9 @@ def test_updateperiod():
         asyncio.ensure_future(run())
         main.start()
 
-    df = results()
-    assert isinstance(df, DataFrame)
-    assert not df.empty
+    ret = results(periods=8)
+    assert len(ret) == 2
+    assert all(not r.empty and isinstance(r, DataFrame) for r in ret)
 
 
 # ============================================================================
