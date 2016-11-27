@@ -23,6 +23,7 @@ import sys
 # Third-party imports
 
 # Local imports
+from .core import TaskABC
 
 
 # ============================================================================
@@ -122,6 +123,7 @@ class TaskImporter:
 
         # Set some important attributes
         module.__taskmodules__ = taskmodules = []
+        module.__tasks__ = tasks = []
 
         # Load taskfiles
         for name, ext, filepath in taskfiles:
@@ -134,6 +136,14 @@ class TaskImporter:
             sys.modules[modname] = taskmod
             taskmodules.append(modname)
             setattr(module, name, taskmod)
+
+            # Find all task objects
+            for obj in vars(taskmod).values():
+                if not isinstance(obj, type) or obj is TaskABC:
+                    continue
+                elif issubclass(obj, TaskABC):
+                    tasks.append(obj)
+
         return module
 
 

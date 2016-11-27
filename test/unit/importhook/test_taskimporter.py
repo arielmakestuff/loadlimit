@@ -21,8 +21,10 @@ from importlib import import_module
 import pytest
 
 # Local imports
+from loadlimit.core import TaskABC
 import loadlimit.importhook
 from loadlimit.importhook import TaskImporter, mkmodule
+from loadlimit.util import iscoroutinecallable
 
 
 # ============================================================================
@@ -81,18 +83,46 @@ class FakeSourceFileLoader:
 
     def load_module(self, name):
         """Fake load_module"""
-        src = """
-        TEST = '{}'
-        """.format(name).strip()
+        src = self.mksrc()
         return mkmodule(src, name)
 
     def exec_module(self, module):
         """Fake exec_module"""
+        src = self.mksrc()
+        c = compile(src, '', 'exec')
+        exec(c, module.__dict__)
+
+    def mksrc(self):
+        """Make source code"""
         src = """
         TEST = '{}'
         """.format(self._fake_name).strip()
-        c = compile(src, '', 'exec')
-        exec(c, module.__dict__)
+        return src
+
+
+class FakeModuleWithTasks(FakeSourceFileLoader):
+    """Create module with tasks"""
+
+    def mksrc(self):
+        """Make source code"""
+        src = """
+from loadlimit.core import TaskABC
+
+class TestTask(TaskABC):
+
+    def __init__(self):
+        self._val = None
+
+    async def __call__(self):
+        self._val.append(42)
+
+    async def init(self, config):
+        self._val = config['val']
+
+class JustASimpleClass:
+    pass
+        """.strip()
+        return src
 
 
 def fake_lstaskfiles(*taskfiles, taskdir=None, checkerr=False):
@@ -243,6 +273,46 @@ def test_mkmodule():
     m = mkmodule(src, 'hello')
     assert hasattr(m, 'foo')
     assert m.foo() == 'BAR'
+
+
+# ============================================================================
+# Test find task coroutines
+# ============================================================================
+
+
+def test_findtasks_none(monkeypatch, modpath):
+    """No tasks found has empty __tasks__ attr"""
+    monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
+    # monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',
+    #                     FakeModuleWithTasks)
+    monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',
+                        FakeSourceFileLoader)
+
+    taskfile = 'a_0.py'
+
+    sys.meta_path.append(TaskImporter(taskfile))
+    taskmod = import_module(modpath)
+
+    assert hasattr(taskmod, '__tasks__')
+    assert taskmod.__tasks__ == []
+
+
+def test_findtasks_found(monkeypatch, modpath):
+    """Find tasks in task files and add to loadlimit.task.__tasks__"""
+    monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
+    monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',
+                        FakeModuleWithTasks)
+
+    taskfile = 'a_0.py'
+
+    sys.meta_path.append(TaskImporter(taskfile))
+    taskmod = import_module(modpath)
+
+    assert len(taskmod.__tasks__) == 1
+    task = taskmod.__tasks__[0]
+    assert task.__name__ == 'TestTask'
+    assert iscoroutinecallable(task)
+    assert issubclass(task, TaskABC)
 
 
 # ============================================================================
