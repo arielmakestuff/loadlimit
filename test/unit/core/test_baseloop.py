@@ -334,5 +334,22 @@ def test_exitcode_loop_still_running():
 
 
 # ============================================================================
+# Test loop property
+# ============================================================================
+
+
+def test_loop_defaultval():
+    """Returns the default asyncio loop"""
+    b = BaseLoop()
+    assert b.loop is b._loop
+
+
+def test_loop_custom(testloop):
+    """Returns the same asyncio loop given via kwargs"""
+    b = BaseLoop(loop=testloop)
+    assert b.loop is testloop
+
+
+# ============================================================================
 #
 # ============================================================================

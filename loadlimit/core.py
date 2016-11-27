@@ -238,6 +238,11 @@ class BaseLoop:
         self._loglevel = newlevel
         self.initlogging()
 
+    @property
+    def loop(self):
+        """Return the asyncio loop"""
+        return self._loop
+
 
 # ============================================================================
 # TaskABC
