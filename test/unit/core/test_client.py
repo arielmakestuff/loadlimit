@@ -12,13 +12,12 @@
 
 
 # Stdlib imports
-import asyncio
 
 # Third-party imports
 import pytest
 
 # Local imports
-from loadlimit.core import Client
+from loadlimit.core import Client, Task, TaskABC
 
 
 # ============================================================================
@@ -28,7 +27,7 @@ from loadlimit.core import Client
 
 def test_init_noargs():
     """Raise error if no args given"""
-    expected = 'Client object did not receive any coroutine callables'
+    expected = 'Client object did not receive any TaskABC subclasses'
     with pytest.raises(ValueError) as err:
         Client()
 
@@ -39,7 +38,7 @@ def test_init_noargs():
 def test_init_badargs(val):
     """Raise error if given a non coroutine callable"""
 
-    expected = ('cf_or_cfiter expected coroutine callable, got {} instead'.
+    expected = ('cf_or_cfiter expected TaskABC subclass, got {} instead'.
                 format(type(val).__name__))
     with pytest.raises(TypeError) as err:
         Client(val)
@@ -50,7 +49,7 @@ def test_init_badargs(val):
 def test_init_badargs_iterable():
     """Raise error if given iterable with non coroutine callable"""
     val = [4.2]
-    expected = ('cf_or_cfiter expected coroutine callable, got {} instead'.
+    expected = ('cf_or_cfiter expected TaskABC subclass, got {} instead'.
                 format(type(val[0]).__name__))
     with pytest.raises(TypeError) as err:
         Client(val)
@@ -58,7 +57,7 @@ def test_init_badargs_iterable():
     assert err.value.args == (expected, )
 
 
-def test_init_mixedargs():
+def test_init_mixedargs(testloop):
     """Accepts mix of good args"""
 
     async def one():
@@ -73,13 +72,17 @@ def test_init_mixedargs():
     async def four():
         """four"""
 
-    class Five:
+    class Five(TaskABC):
         """five"""
 
         async def __call__(self):
             """call"""
 
-    Client(one, [two, three], four, [Five])
+        async def init(self, config):
+            """init"""
+
+    c = Client(Task(one), [Task(two), Task(three)], Task(four), [Five])
+    testloop.run_until_complete(c())
 
 
 # ============================================================================
@@ -111,15 +114,63 @@ def test_init_call(testloop):
         """three"""
         val.append(3)
 
-    c = TestClient(one, two, three)
-    t = [asyncio.ensure_future(coro) for coro in [c.init(None), c()]]
-    f = asyncio.gather(*t)
-    testloop.run_until_complete(f)
+    tasks = [Task(cf) for cf in [one, two, three]]
+    c = TestClient(tasks)
+
+    # Init tasks
+    testloop.run_until_complete(c.init(None))
+
+    # Run client
+    testloop.run_until_complete(c())
 
     assert val
     assert len(val) == 4
     assert set(val[:-1]) == set([1, 2, 3])
     assert val[-1] == 9000
+
+
+# ============================================================================
+# Test reschedule
+# ============================================================================
+
+
+class RunClient5(Client):
+    """Client that 5 times"""
+
+    def __init__(self, *args):
+        super().__init__(*args, reschedule=True)
+        self._count = 0
+
+    @property
+    def option(self):
+        """Increment the count every time this is accessed"""
+        option = super().option
+        self._count = self._count + 1
+        if self._count == 5:
+            option.reschedule = False
+        return option
+
+
+def test_reschedule(testloop):
+    """Client keeps running if reschedule is True"""
+
+    val = []
+
+    async def one():
+        """one"""
+        val.append(1)
+
+    c = RunClient5(Task(one))
+
+    # Init tasks
+    testloop.run_until_complete(c.init(None))
+
+    # Run client
+    testloop.run_until_complete(c())
+
+    assert val
+    assert len(val) == 5
+    assert val == [1] * 5
 
 
 # ============================================================================

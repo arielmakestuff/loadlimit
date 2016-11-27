@@ -24,7 +24,6 @@ import pytest
 from loadlimit.core import TaskABC
 import loadlimit.importhook
 from loadlimit.importhook import TaskImporter, mkmodule
-from loadlimit.util import iscoroutinecallable
 
 
 # ============================================================================
@@ -311,7 +310,7 @@ def test_findtasks_found(monkeypatch, modpath):
     assert len(taskmod.__tasks__) == 1
     task = taskmod.__tasks__[0]
     assert task.__name__ == 'TestTask'
-    assert iscoroutinecallable(task)
+    assert isinstance(task, type)
     assert issubclass(task, TaskABC)
 
 

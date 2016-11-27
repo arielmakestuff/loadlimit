@@ -26,7 +26,7 @@ import sys
 # Third-party imports
 
 # Local imports
-from .util import iscoroutinecallable, LogLevel
+from .util import LogLevel, Namespace
 from . import event
 
 
@@ -269,10 +269,10 @@ class Task(TaskABC):
         if not iscoroutinefunction(corofunc):
             msg = 'corofunc expected coroutine function, got {} instead'
             raise TypeError(msg.format(type(corofunc).__name__))
-        self._corofunc = corofunc()
+        self._corofunc = corofunc
 
     async def __call__(self):
-        await self._corofunc
+        await self._corofunc()
 
     async def init(self, config):
         """Initialize the task"""
@@ -289,7 +289,8 @@ class Client(TaskABC):
     mindelay = 0
     maxdelay = 0
 
-    def __init__(self, *cf_or_cfiter):
+    def __init__(self, *cf_or_cfiter, reschedule=False):
+        self._option = Namespace(reschedule=reschedule)
         cfiter = []
         cflist = []
         for cf in cf_or_cfiter:
@@ -298,25 +299,43 @@ class Client(TaskABC):
 
         corofunc = []
         for cf in chain(cflist, *cfiter):
-            if iscoroutinecallable(cf):
+            isclass = isinstance(cf, type)
+            if (isinstance(cf, TaskABC) or
+                    (isclass and cf is not TaskABC and
+                     issubclass(cf, TaskABC))):
+                if isclass:
+                    cf = cf()
                 corofunc.append(cf)
                 continue
 
-            msg = 'cf_or_cfiter expected coroutine callable, got {} instead'
+            msg = 'cf_or_cfiter expected TaskABC subclass, got {} instead'
             raise TypeError(msg.format(type(cf).__name__))
 
         if not corofunc:
-            msg = 'Client object did not receive any coroutine callables'
+            msg = 'Client object did not receive any TaskABC subclasses'
             raise ValueError(msg)
         self._corofunc = corofunc
 
     async def __call__(self):
-        t = [asyncio.ensure_future(corofunc()) for corofunc in self._corofunc]
-        await asyncio.gather(*t)
+        ensure_future = asyncio.ensure_future
+        while True:
+            t = [ensure_future(corofunc()) for corofunc in self._corofunc]
+            await asyncio.gather(*t)
+
+            if not self.option.reschedule:
+                return
 
     async def init(self, config):
         """Initialize the task"""
-        pass
+        ensure_future = asyncio.ensure_future
+        t = [ensure_future(corofunc.init(config))
+             for corofunc in self._corofunc]
+        await asyncio.gather(*t)
+
+    @property
+    def option(self):
+        """Return the option namespace"""
+        return self._option
 
 
 # ============================================================================

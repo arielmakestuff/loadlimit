@@ -13,7 +13,6 @@
 
 # Stdlib imports
 import argparse
-from asyncio import iscoroutinefunction
 from enum import Enum
 import logging
 
@@ -90,21 +89,6 @@ class AsyncIterator:
         return value
 
 aiter = AsyncIterator
-
-
-# ============================================================================
-# Coroutine checks
-# ============================================================================
-
-
-def iscoroutinecallable(obj):
-    """Check if obj is a coroutine callable"""
-    if not callable(obj):
-        return False
-    if iscoroutinefunction(obj):
-        return True
-    callfunc = getattr(obj, '__call__', None)
-    return iscoroutinefunction(callfunc)
 
 
 # ============================================================================
