@@ -12,8 +12,10 @@
 
 
 # Stdlib imports
+from abc import ABCMeta, abstractmethod
 import asyncio
-from asyncio import CancelledError, InvalidStateError, sleep
+from asyncio import (CancelledError, InvalidStateError, iscoroutinefunction,
+                     sleep)
 from functools import partial
 import logging
 from signal import SIGTERM, SIGINT, signal as setupsignal
@@ -233,6 +235,46 @@ class BaseLoop:
             raise TypeError(msg.format(newlevel.__class__.__name__))
         self._loglevel = newlevel
         self.initlogging()
+
+
+# ============================================================================
+# TaskABC
+# ============================================================================
+
+
+class TaskABC(metaclass=ABCMeta):
+    """ABC definition of a loadlimit task"""
+
+    @abstractmethod
+    async def __call__(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def init(self, config):
+        """Coroutine that initializes the task """
+        raise NotImplementedError
+
+
+# ============================================================================
+# Task
+# ============================================================================
+
+
+class Task(TaskABC):
+    """Wraps coroutine in a task"""
+
+    def __init__(self, corofunc):
+        if not iscoroutinefunction(corofunc):
+            msg = 'corofunc expected coroutine function, got {} instead'
+            raise TypeError(msg.format(type(corofunc).__name__))
+        self._corofunc = corofunc()
+
+    async def __call__(self):
+        await self._corofunc
+
+    async def init(self, config):
+        """Initialize the task"""
+        pass
 
 
 # ============================================================================
