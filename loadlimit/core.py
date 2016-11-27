@@ -16,7 +16,9 @@ from abc import ABCMeta, abstractmethod
 import asyncio
 from asyncio import (CancelledError, InvalidStateError, iscoroutinefunction,
                      sleep)
+from collections.abc import Iterable
 from functools import partial
+from itertools import chain
 import logging
 from signal import SIGTERM, SIGINT, signal as setupsignal
 import sys
@@ -24,7 +26,7 @@ import sys
 # Third-party imports
 
 # Local imports
-from .util import LogLevel
+from .util import iscoroutinecallable, LogLevel
 from . import event
 
 
@@ -271,6 +273,46 @@ class Task(TaskABC):
 
     async def __call__(self):
         await self._corofunc
+
+    async def init(self, config):
+        """Initialize the task"""
+        pass
+
+
+# ============================================================================
+# Client
+# ============================================================================
+
+
+class Client(TaskABC):
+    """Determine how to run a set of tasks"""
+    mindelay = 0
+    maxdelay = 0
+
+    def __init__(self, *cf_or_cfiter):
+        cfiter = []
+        cflist = []
+        for cf in cf_or_cfiter:
+            cfstore = cfiter if isinstance(cf, Iterable) else cflist
+            cfstore.append(cf)
+
+        corofunc = []
+        for cf in chain(cflist, *cfiter):
+            if iscoroutinecallable(cf):
+                corofunc.append(cf)
+                continue
+
+            msg = 'cf_or_cfiter expected coroutine callable, got {} instead'
+            raise TypeError(msg.format(type(cf).__name__))
+
+        if not corofunc:
+            msg = 'Client object did not receive any coroutine callables'
+            raise ValueError(msg)
+        self._corofunc = corofunc
+
+    async def __call__(self):
+        t = [asyncio.ensure_future(corofunc()) for corofunc in self._corofunc]
+        await asyncio.gather(*t)
 
     async def init(self, config):
         """Initialize the task"""
