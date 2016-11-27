@@ -13,6 +13,7 @@
 
 # Stdlib imports
 from asyncio import Lock
+from hashlib import sha1
 from collections import defaultdict, namedtuple
 from functools import wraps
 
@@ -20,6 +21,7 @@ from functools import wraps
 import numpy as np
 import pandas as pd
 from pandas import DataFrame, Series, Timestamp
+from pandas.io import sql
 
 # Local imports
 from .event import EventNotStartedError, MultiEvent, RunFirst
@@ -134,7 +136,7 @@ def timecoro(name):
 
 
 @recordperiod(runfirst=True)
-async def updateperiod(data, *, statsdict=None):
+async def updateperiod(data, *, statsdict=None, **kwargs):
     """Update a period/defaultdict(list) with period data point
 
     This is the anchor coro func for the recordperiod event.
@@ -153,6 +155,56 @@ async def updateperiod(data, *, statsdict=None):
         slist = statsdict[name]
         slist.append(s)
         statsdict.numdata = statsdict.numdata + 1
+
+
+async def flushtosql(data, *, statsdict=None, sqlengine=None, flushlimit=50000,
+                     sqltbl='period', **kwargs):
+    """Flush statsdict data to sql db"""
+
+    with (await statsdict.lock):
+        if statsdict.numdata < flushlimit:
+            return
+
+        with sqlengine.begin() as conn:
+
+            to_datetime = pd.to_datetime
+            timedelta64 = np.timedelta64
+            async for k in aiter(statsdict):
+                # Generate table name
+                curkey = sha1(k.encode('utf-8')).hexdigest()
+                curname = '{}_{}'.format(sqltbl, curkey)
+
+                # Get number of rows in db
+                hastable = sqlengine.dialect.has_table(sqlengine, curname)
+                qry = 'SELECT count(*) FROM {}'.format(curname)
+                numrows = (0 if not hastable else
+                           sql.execute(qry, conn).fetchone()[0])
+                startind = numrows
+
+                # Convert each series to use naive datetimes and nanosecond
+                # int/float values instead of timedeltas
+                slist = [[to_datetime(s[0].value),
+                          to_datetime(s[1].value),
+                          s[2] / timedelta64(1, 'ns')]
+                         for s in statsdict[k]]
+                index = list(range(startind, startind + len(slist)))
+                df = DataFrame(slist, index=index,
+                               columns=['start', 'end', 'delta'])
+                startind = startind + len(df)
+                df.to_sql(curname, conn, if_exists='append')
+
+    await statsdict.aclearvals()
+
+
+async def flushtosql_shutdown(result, *, statsdict=None, sqlengine=None,
+                              sqltbl='period', **kwargs):
+    """Flush statsdict to sql on shutdown"""
+    with (await statsdict.lock):
+        if statsdict.numdata == 0:
+            return
+
+    await flushtosql(None, statsdict=statsdict, sqlengine=sqlengine,
+                     flushlimit=0, sqltbl=sqltbl)
 
 
 # ============================================================================
