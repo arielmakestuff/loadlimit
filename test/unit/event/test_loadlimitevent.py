@@ -322,5 +322,118 @@ def test_reschedule(testloop):
 
 
 # ============================================================================
+# Test schedule arg
+# ============================================================================
+
+
+def test_noschedule():
+    """No schedule coro funcs are not tasks"""
+    event = LoadLimitEvent()
+
+    @event(schedule=False)
+    async def one(result):
+        """one"""
+
+    @event
+    async def two(result):
+        """two"""
+
+    assert event.tasks == set([two])
+    assert event.noschedule == set([one])
+
+
+def test_noschedule_first(testloop):
+    """Non-scheduled coro funcs run first before scheduling tasks"""
+    event = LoadLimitEvent()
+    val = []
+
+    @event
+    async def one(result):
+        """one"""
+        val.append(1)
+
+    @event
+    async def two(result):
+        """two"""
+        val.append(2)
+
+    @event
+    async def three(result):
+        """three"""
+        val.append(3)
+
+    @event(schedule=False)
+    async def nono(result):
+        """nono"""
+        val.append(42)
+
+    @event(schedule=False)
+    async def yesyes(result):
+        """yesyes"""
+        val.append(9000)
+
+    async def run():
+        """run"""
+        event.set()
+
+    event.start()
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks())
+    testloop.run_until_complete(f)
+
+    assert val[:2] == [42, 9000]
+    assert set(val[2:]) == set([1, 2, 3])
+
+
+def test_noschedule_notasks(testloop):
+    """Non-scheduled coro funcs run"""
+    event = LoadLimitEvent()
+    val = []
+
+    @event(schedule=False)
+    async def nono(result):
+        """nono"""
+        val.append(42)
+
+    @event(schedule=False)
+    async def yesyes(result):
+        """yesyes"""
+        val.append(9000)
+
+    async def run():
+        """run"""
+        event.set()
+
+    event.start()
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks())
+    testloop.run_until_complete(f)
+
+    assert val == [42, 9000]
+
+
+def test_noschedule_reschedule(testloop):
+    """Reschedule arg works for non-scheduled coro funcs"""
+    event = LoadLimitEvent()
+    val = []
+
+    @event(schedule=False)
+    async def nono(result):
+        """nono"""
+        if len(val) == 5:
+            event.option.reschedule = False
+            return
+        val.append(42)
+
+    async def run():
+        """run"""
+        event.set()
+
+    event.start(reschedule=True)
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks())
+    testloop.run_until_complete(f)
+
+    assert val == [42] * 5
+
+
+# ============================================================================
 #
 # ============================================================================

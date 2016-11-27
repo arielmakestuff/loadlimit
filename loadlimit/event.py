@@ -21,7 +21,7 @@ from functools import wraps
 # Third-party imports
 
 # Local imports
-from .util import Namespace
+from .util import aiter, Namespace
 
 
 # ============================================================================
@@ -83,17 +83,18 @@ class LoadLimitEvent:
         self._tasks = set()
         self._waiting = set()
         self._option = None
+        self._cb = []
 
     def __iter__(self):
         """Iterate over all tasks waiting for the event"""
         return iter(self._waiting)
 
-    def __call__(self, corofunc=None):
+    def __call__(self, corofunc=None, schedule=True, **kwargs):
         """Decorator to add a corofunc to the event"""
 
         def addcoro(corofunc):
             """Add corofunc with kwargs"""
-            self.add(corofunc)
+            self.add(corofunc, schedule=schedule, **kwargs)
             return corofunc
 
         if corofunc is None:
@@ -162,7 +163,7 @@ class LoadLimitEvent:
             raise EventNotStartedError
         await event.wait()
 
-    def add(self, *tasks):
+    def add(self, *tasks, schedule=True, **kwargs):
         """Add one or more tasks for the event"""
 
         def itertasks(alltasks):
@@ -173,7 +174,10 @@ class LoadLimitEvent:
                     raise TypeError(msg.format(type(t).__name__))
                 yield t
 
-        self._tasks.update(itertasks(tasks))
+        if schedule:
+            self._tasks.update(itertasks(tasks))
+        else:
+            self._cb.extend(itertasks(tasks))
 
     def start(self, *, loop=None, reschedule=False, **kwargs):
         """Start the event.
@@ -190,7 +194,7 @@ class LoadLimitEvent:
             self.clear()
 
         # If no tasks, raise an error
-        if not tasks:
+        if not tasks and not self._cb:
             raise NoEventTasksError
 
         # Create a new event
@@ -209,11 +213,13 @@ class LoadLimitEvent:
 
     def _schedule_tasks(self, tasks, kwargs, loop):
         """Schedule tasks"""
-        # Schedule all tasks
-        runtask = self.runtask
-        self._waiting.update(
-            ensure_future(runtask(corofunc, kwargs), loop=loop)
-            for corofunc in tasks)
+        if self._cb:
+            ensure_future(self.runcb(tasks, kwargs, loop), loop=loop)
+        else:
+            runtask = self.runtask
+            self._waiting.update(
+                ensure_future(runtask(corofunc, kwargs), loop=loop)
+                for corofunc in tasks)
 
     async def runtask(self, corofunc, kwargs):
         """Wait for the event and then run the task"""
@@ -222,6 +228,34 @@ class LoadLimitEvent:
             await self.wait()
             result = Namespace(**future.result())
             await corofunc(result, **kwargs)
+
+            if not self._option.reschedule:
+                break
+
+    async def runcb(self, tasks, kwargs, loop):
+        """Wait for the event and then run all non-scheduled coro funcs"""
+        while True:
+            future = self._result
+            await self.wait()
+            result = Namespace(**future.result())
+
+            # Run non-scheduled coro funcs
+            async for corofunc in aiter(self._cb):
+                await corofunc(result, **kwargs)
+
+            # schedule all tasks
+            if tasks:
+                self._waiting = waiting = {
+                    ensure_future(corofunc(result, **kwargs), loop=loop)
+                    for corofunc in tasks
+                }
+
+            # Wait for all other tasks to finish
+            waiting = self._waiting
+            if waiting:
+                await asyncio.gather(*waiting, loop=loop)
+
+            waiting.clear()
 
             if not self._option.reschedule:
                 break
@@ -245,6 +279,16 @@ class LoadLimitEvent:
     def option(self):
         """Return the container option Namespace"""
         return self._option
+
+    @property
+    def noschedule(self):
+        """Return a list of coro funcs that will not be scheduled
+
+        Tasks are coro funcs that are scheduled to run. This set of coro funcs,
+        however, are run directly in relation to the anchor.
+
+        """
+        return frozenset(self._cb)
 
 
 # ============================================================================
@@ -426,7 +470,7 @@ class MultiEvent:
         else:
             await self._event[eventid].wait()
 
-    def add(self, *tasks, eventid=None, ignore=None):
+    def add(self, *tasks, eventid=None, ignore=None, **kwargs):
         """Add one or more tasks to the given event
 
         If eventid is None, adds the tasks to every stored event.
@@ -435,9 +479,9 @@ class MultiEvent:
         ignorefunc = self._ignore_exception
         if eventid is None:
             for event in self._event.values():
-                ignorefunc(ignore, event.add, *tasks)
+                ignorefunc(ignore, event.add, *tasks, **kwargs)
         else:
-            ignorefunc(ignore, self._event[eventid].add, *tasks)
+            ignorefunc(ignore, self._event[eventid].add, *tasks, **kwargs)
 
     def start(self, eventid=None, *, loop=None, ignore=None, **kwargs):
         """Start the given event.
@@ -478,18 +522,25 @@ class Anchor(LoadLimitEvent):
         self._anchortype = None
         self._anchorfunc = (None, None)
 
-    def __call__(self, corofunc=None, anchortype=None):
+    def __call__(self, corofunc=None, anchortype=None, schedule=True,
+                 **kwargs):
         """Decorator to add a corofunc to the event"""
         self.anchortype = anchortype
-        return super().__call__(corofunc)
+        if corofunc and anchortype is None and not schedule:
+            self.add(corofunc, schedule=schedule, **kwargs)
+            return corofunc
+        return super().__call__(corofunc, schedule=schedule, **kwargs)
 
-    def add(self, *tasks):
+    def add(self, *tasks, schedule=True, **kwargs):
         """Adds tasks
 
         Prevents anchorfunc from being added as a normal task
 
         """
-        super().add(*tasks)
+        if self._anchortype is None and not schedule:
+            self._cb.extend(tasks)
+        else:
+            super().add(*tasks, **kwargs)
 
         # Set anchorfunc
         anchortype = self._anchortype
@@ -523,6 +574,10 @@ class Anchor(LoadLimitEvent):
             # Run the first coro
             if anchortype == AnchorType.first:
                 await corofunc(result, **kwargs)
+
+            # Run async callbacks
+            async for cb in aiter(self._cb):
+                await cb(result, **kwargs)
 
             # schedule all tasks
             if tasks:
@@ -572,10 +627,11 @@ class Anchor(LoadLimitEvent):
 class RunLast(Anchor):
     """Define a coro func that will run after all other tasks"""
 
-    def __call__(self, corofunc=None, runlast=False):
+    def __call__(self, corofunc=None, runlast=False, schedule=True):
         """Decorator to add a corofunc to the event"""
         anchortype = AnchorType.last if runlast else None
-        return super().__call__(corofunc, anchortype=anchortype)
+        return super().__call__(corofunc, anchortype=anchortype,
+                                schedule=schedule)
 
 
 # ============================================================================
@@ -586,10 +642,11 @@ class RunLast(Anchor):
 class RunFirst(Anchor):
     """Define a coro func that will run before all other tasks"""
 
-    def __call__(self, corofunc=None, runfirst=False):
+    def __call__(self, corofunc=None, runfirst=False, schedule=True):
         """Decorator to add a corofunc to the event"""
         anchortype = AnchorType.first if runfirst else None
-        return super().__call__(corofunc, anchortype=anchortype)
+        return super().__call__(corofunc, anchortype=anchortype,
+                                schedule=schedule)
 
 
 # ============================================================================

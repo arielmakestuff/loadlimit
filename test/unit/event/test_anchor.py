@@ -330,5 +330,132 @@ def test_reschedule(testloop):
 
 
 # ============================================================================
+# Test schedule kwarg on __call__() and add()
+# ============================================================================
+
+
+@pytest.mark.parametrize('sched', [True, False])
+def test_anchortype_noschedule(sched):
+    """If an anchortype is given, value of schedule kwarg is ignored"""
+    event = Anchor()
+
+    @event(anchortype=AnchorType.first, schedule=sched)
+    async def one(result):
+        """one"""
+
+    assert event.tasks == set([one])
+
+
+def test_noschedule(testloop):
+    """Not scheduled coro funcs are run before tasks are scheduled"""
+    event = Anchor()
+    val = []
+
+    @event(anchortype=AnchorType.first)
+    async def one(result):
+        """one"""
+        val.append(1)
+
+    @event
+    async def two(result):
+        """two"""
+        val.append(2)
+
+    @event
+    async def three(result):
+        """three"""
+        val.append(3)
+
+    @event(schedule=False)
+    async def answer(result):
+        """answer"""
+        val.append(42)
+
+    async def run():
+        """run"""
+        event.set()
+
+    event.start()
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks())
+    testloop.run_until_complete(f)
+
+    assert val
+    assert val[:2] == [1, 42]
+    assert set(val[2:]) == set([2, 3])
+
+
+def test_noschedule_manualwrap(testloop):
+    """Manual wrapping coro in noschedule event"""
+
+    event = Anchor()
+    val = []
+
+    @event(anchortype=AnchorType.first)
+    async def one(result):
+        """one"""
+        val.append(1)
+
+    @event
+    async def two(result):
+        """two"""
+        val.append(2)
+
+    @event
+    async def three(result):
+        """three"""
+        val.append(3)
+
+    async def answer(result):
+        """answer"""
+        val.append(42)
+
+    async def run():
+        """run"""
+        event.set()
+
+    # Manually add answer coro as noschedule
+    event(answer, schedule=False)
+
+    event.start()
+    f = asyncio.gather(run(), *asyncio.Task.all_tasks())
+    testloop.run_until_complete(f)
+
+    assert val
+    assert val[:2] == [1, 42]
+    assert set(val[2:]) == set([2, 3])
+
+
+def test_noschedule_property():
+    """noschedule property returns frozenset of all noschedule coro funcs"""
+    event = Anchor()
+
+    @event(anchortype=AnchorType.first)
+    async def one(result):
+        """one"""
+
+    @event(schedule=False)
+    async def two(result):
+        """two"""
+
+    @event
+    async def three(result):
+        """three"""
+
+    @event(schedule=False)
+    async def four(result):
+        """four"""
+
+    @event
+    async def five(result):
+        """five"""
+
+    assert len(event.tasks) == 3
+    assert len(event.noschedule) == 2
+
+    assert event.tasks == set([one, three, five])
+    assert event.noschedule == set([two, four])
+
+
+# ============================================================================
 #
 # ============================================================================
