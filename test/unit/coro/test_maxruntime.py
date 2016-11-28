@@ -49,7 +49,7 @@ def test_stops_event(cls):
             asyncio.ensure_future(coro)
         main.start()
 
-    assert val == 10
+    assert val >= 10
 
 
 @pytest.mark.parametrize('val', [42, 4.2, '42', [42], (42, )])
