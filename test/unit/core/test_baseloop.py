@@ -22,8 +22,9 @@ import sys
 import pytest
 
 # Local imports
+import loadlimit.core as core
 from loadlimit.core import BaseLoop
-from loadlimit.util import LogLevel
+from loadlimit.util import LogLevel, Namespace
 from loadlimit import event
 
 
@@ -294,7 +295,8 @@ def test_running():
     async def check_loop_state(baseloop, future):
         """Check if baseloop is still running"""
         future.set_result(baseloop.running())
-        asyncio.ensure_future(baseloop.shutdown(0))
+        result = Namespace(exitcode=0)
+        asyncio.ensure_future(core.shutdown(result, manager=baseloop))
 
     with BaseLoop() as baseloop:
         future = asyncio.get_event_loop().create_future()
