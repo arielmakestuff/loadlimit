@@ -190,6 +190,24 @@ def test_tqdm_noupdate(pbar, testloop):
     assert state.tqdm_progress[name] == 0
 
 
+def test_tqdm_nopbar(testloop):
+    """Use parent class __call__ if no tqdm pbar"""
+    state = Namespace(progressbar={}, value=0)
+
+    class Task(core.TaskABC):
+        """Custom task"""
+
+        async def __call__(self, state):
+            state.value += 1
+
+        async def init(self, config, state):
+            """noop"""
+
+    client = cli.TQDMClient(Task)
+    f = asyncio.gather(client(state))
+    testloop.run_until_complete(f)
+
+
 # ============================================================================
 #
 # ============================================================================
