@@ -75,14 +75,14 @@ def test_init_mixedargs(testloop):
     class Five(TaskABC):
         """five"""
 
-        async def __call__(self):
+        async def __call__(self, state):
             """call"""
 
-        async def init(self, config):
+        async def init(self, config, state):
             """init"""
 
     c = Client(Task(one), [Task(two), Task(three)], Task(four), [Five])
-    testloop.run_until_complete(c())
+    testloop.run_until_complete(c(None))
 
 
 # ============================================================================
@@ -98,8 +98,8 @@ def test_init_call(testloop):
     class TestClient(Client):
         """Add value once all tasks finished"""
 
-        async def __call__(self):
-            await super().__call__()
+        async def __call__(self, state):
+            await super().__call__(state)
             val.append(9000)
 
     async def one():
@@ -118,10 +118,10 @@ def test_init_call(testloop):
     c = TestClient(tasks)
 
     # Init tasks
-    testloop.run_until_complete(c.init(None))
+    testloop.run_until_complete(c.init(None, None))
 
     # Run client
-    testloop.run_until_complete(c())
+    testloop.run_until_complete(c(None))
 
     assert val
     assert len(val) == 4
@@ -163,10 +163,10 @@ def test_reschedule(testloop):
     c = RunClient5(Task(one))
 
     # Init tasks
-    testloop.run_until_complete(c.init(None))
+    testloop.run_until_complete(c.init(None, None))
 
     # Run client
-    testloop.run_until_complete(c())
+    testloop.run_until_complete(c(None))
 
     assert val
     assert len(val) == 5

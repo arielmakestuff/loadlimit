@@ -253,11 +253,11 @@ class TaskABC(metaclass=ABCMeta):
     """ABC definition of a loadlimit task"""
 
     @abstractmethod
-    async def __call__(self):
+    async def __call__(self, state):
         raise NotImplementedError
 
     @abstractmethod
-    async def init(self, config):
+    async def init(self, config, state):
         """Coroutine that initializes the task """
         raise NotImplementedError
 
@@ -276,10 +276,10 @@ class Task(TaskABC):
             raise TypeError(msg.format(type(corofunc).__name__))
         self._corofunc = corofunc
 
-    async def __call__(self):
+    async def __call__(self, state):
         await self._corofunc()
 
-    async def init(self, config):
+    async def init(self, config, state):
         """Initialize the task"""
         pass
 
@@ -321,19 +321,19 @@ class Client(TaskABC):
             raise ValueError(msg)
         self._corofunc = corofunc
 
-    async def __call__(self):
+    async def __call__(self, state):
         ensure_future = asyncio.ensure_future
         while True:
-            t = [ensure_future(corofunc()) for corofunc in self._corofunc]
+            t = [ensure_future(corofunc(state)) for corofunc in self._corofunc]
             await asyncio.gather(*t)
 
             if not self.option.reschedule:
                 return
 
-    async def init(self, config):
+    async def init(self, config, state):
         """Initialize the task"""
         ensure_future = asyncio.ensure_future
-        t = [ensure_future(corofunc.init(config))
+        t = [ensure_future(corofunc.init(config, state))
              for corofunc in self._corofunc]
         await asyncio.gather(*t)
 

@@ -39,7 +39,7 @@ def empty_argv(monkeypatch):
 @pytest.fixture
 def norunloop(monkeypatch):
     """Mock runloop() with func that does nothing"""
-    def fake_runloop(config, args):
+    def fake_runloop(config, args, state):
         """fake_runloop"""
         cli.process_options(config, args)
 
@@ -106,13 +106,15 @@ def test_main_default_args():
 
     llconfig = config['loadlimit']
 
-    assert len(llconfig) == 4
-    for name in ['timezone', 'numusers', 'duration', 'importer']:
+    assert len(llconfig) == 5
+    for name in ['timezone', 'numusers', 'duration', 'importer',
+                 'show-progressbar']:
         assert name in llconfig
 
     assert llconfig['numusers'] == 1
     assert llconfig['timezone'] == timezone('UTC')
     assert llconfig['duration'] == Timedelta('1s')
+    assert llconfig['show-progressbar'] is True
     assert isinstance(llconfig['importer'], TaskImporter)
 
 

@@ -58,12 +58,12 @@ def test_task_wrap_corofunc(testloop):
     tasks = [Task(f) for f in [one, two]]
 
     # Init each task
-    f = asyncio.gather(*[t.init(None) for t in tasks])
+    f = asyncio.gather(*[t.init(None, None) for t in tasks])
     testloop.run_until_complete(f)
     assert not val
 
     # Run each task
-    f = asyncio.gather(*[t() for t in tasks])
+    f = asyncio.gather(*[t(None) for t in tasks])
     testloop.run_until_complete(f)
 
     assert set(val) == set([1, 2])
