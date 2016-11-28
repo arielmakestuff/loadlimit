@@ -33,16 +33,10 @@ from loadlimit.util import aiter
 def test_updateperiod():
     """updateperiod updates statsdict with timeseries data points"""
 
-    # Setup uvloop
-    # asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
     results = Total()
 
-    # Create recordperiod anchor that updates stats
-    # recordperiod(partial(updateperiod, stats), runfirst=True)
-
     # Create coro to time
-    @timecoro('churn')
+    @timecoro(name='churn')
     async def churn(i):
         """Do nothing"""
         await asyncio.sleep(0)

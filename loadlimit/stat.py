@@ -107,8 +107,14 @@ class Period(defaultdict):
 # ============================================================================
 
 
-def timecoro(name):
+def timecoro(corofunc=None, *, name=None):
     """Records the start and stop time of the given corofunc"""
+    if name is None:
+        raise ValueError('name not given')
+    elif not isinstance(name, str):
+        msg = 'name expected str, got {} instead'.format(type(name).__name__)
+        raise TypeError(msg)
+
     recordperiod.__getitem__(name)
 
     def deco(corofunc):
@@ -127,7 +133,10 @@ def timecoro(name):
 
         return wrapper
 
-    return deco
+    if corofunc is None:
+        return deco
+
+    return deco(corofunc)
 
 
 # ============================================================================

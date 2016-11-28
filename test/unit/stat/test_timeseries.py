@@ -33,7 +33,7 @@ def test_return_two_df():
     results = TimeSeries()
 
     # Create coro to time
-    @timecoro('churn')
+    @timecoro(name='churn')
     async def churn(i):
         """Do nothing"""
         await asyncio.sleep(0)
