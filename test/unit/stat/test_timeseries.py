@@ -13,14 +13,27 @@
 
 # Stdlib imports
 import asyncio
+
 # Third-party imports
 from pandas import DataFrame
+import pytest
 
 # Local imports
 from loadlimit.core import BaseLoop
-from loadlimit.event import NoEventTasksError, shutdown
-from loadlimit.stat import recordperiod, timecoro, TimeSeries
+import loadlimit.event as event
+from loadlimit.event import NoEventTasksError
+import loadlimit.stat as stat
+from loadlimit.stat import timecoro, TimeSeries
 from loadlimit.util import aiter
+
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+
+pytestmark = pytest.mark.usefixtures('fake_shutdown_event',
+                                     'fake_recordperiod_event')
 
 
 # ============================================================================
@@ -42,14 +55,14 @@ def test_return_two_df():
         """run"""
         async for i in aiter(range(500)):
             await churn(i)
-        shutdown.set(exitcode=0)
+        event.shutdown.set(exitcode=0)
 
     # Run all the tasks
     with BaseLoop() as main:
 
         # Start every event, and ignore events that don't have any tasks
-        recordperiod.start(ignore=NoEventTasksError, reschedule=True,
-                           statsdict=results.statsdict)
+        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
+                                statsdict=results.statsdict)
 
         asyncio.ensure_future(run())
         main.start()

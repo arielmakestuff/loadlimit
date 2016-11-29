@@ -23,10 +23,20 @@ from sqlalchemy import create_engine
 
 # Local imports
 from loadlimit.core import BaseLoop
-from loadlimit.event import NoEventTasksError, shutdown
-from loadlimit.stat import (flushtosql, flushtosql_shutdown, recordperiod,
-                            timecoro, Total)
+import loadlimit.event as event
+from loadlimit.event import NoEventTasksError
+import loadlimit.stat as stat
+from loadlimit.stat import flushtosql, flushtosql_shutdown, timecoro, Total
 from loadlimit.util import aiter
+
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+
+pytestmark = pytest.mark.usefixtures('fake_shutdown_event',
+                                     'fake_recordperiod_event')
 
 
 # ============================================================================
@@ -60,22 +70,22 @@ def test_flushtosql(num):
         """run"""
         async for i in aiter(range(num)):
             await churn(i)
-        shutdown.set(exitcode=0)
+        event.shutdown.set(exitcode=0)
 
     # Add to shutdown event
-    shutdown(partial(flushtosql_shutdown, statsdict=results.statsdict,
-                     sqlengine=engine))
+    event.shutdown(partial(flushtosql_shutdown, statsdict=results.statsdict,
+                           sqlengine=engine))
 
     # Run all the tasks
     with BaseLoop() as main:
 
         # Add flushtosql to recordperiod event
-        recordperiod(flushtosql, schedule=False)
+        stat.recordperiod(flushtosql, schedule=False)
 
         # Start every event, and ignore events that don't have any tasks
-        recordperiod.start(ignore=NoEventTasksError, reschedule=True,
-                           statsdict=results.statsdict, flushlimit=5,
-                           sqlengine=engine)
+        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
+                                statsdict=results.statsdict, flushlimit=5,
+                                sqlengine=engine)
 
         asyncio.ensure_future(run())
         main.start()

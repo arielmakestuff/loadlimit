@@ -44,7 +44,7 @@ def pbar():
         yield pbar
 
 
-pytestmark = pytest.mark.usefixtures('cleanup')
+pytestmark = pytest.mark.usefixtures('cleanup', 'fake_shutdown_event')
 
 
 # ============================================================================
@@ -103,11 +103,6 @@ def fake_sysexit(exitcode):
 
 def test_tqdm(monkeypatch, modpath):
     """Enable tqdm progress bars"""
-    # Setup fake shutdown
-    fake_shutdown = event.RunLast()
-    fake_shutdown(core.shutdown, runlast=True)
-
-    monkeypatch.setattr(event, 'shutdown', fake_shutdown)
     monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
     monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',
                         FakeSourceFileLoader)

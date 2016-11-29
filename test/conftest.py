@@ -19,6 +19,9 @@ import logging
 import pytest
 
 # Local imports
+import loadlimit.core as core
+import loadlimit.event as event
+import loadlimit.stat as stat
 
 
 # ============================================================================
@@ -58,6 +61,22 @@ def testloop(event_loop):
         pass
     finally:
         event_loop.close()
+
+
+@pytest.fixture
+def fake_shutdown_event(monkeypatch):
+    """Setup fake shutdown event"""
+    fake_shutdown = event.RunLast()
+    fake_shutdown(core.shutdown, runlast=True)
+    monkeypatch.setattr(event, 'shutdown', fake_shutdown)
+
+
+@pytest.fixture
+def fake_recordperiod_event(monkeypatch):
+    """Setup fake recordperiod event"""
+    fake_recordperiod = event.MultiEvent(event.RunFirst)
+    fake_recordperiod(stat.updateperiod, runfirst=True)
+    monkeypatch.setattr(stat, 'recordperiod', fake_recordperiod)
 
 
 # ============================================================================
