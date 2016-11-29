@@ -14,10 +14,9 @@
 # Stdlib imports
 import asyncio
 from functools import partial
-from hashlib import sha1
 
 # Third-party imports
-from pandas import DataFrame, read_sql_table, to_timedelta
+from pandas import DataFrame
 import pytest
 from sqlalchemy import create_engine
 
@@ -26,7 +25,8 @@ from loadlimit.core import BaseLoop
 import loadlimit.event as event
 from loadlimit.event import NoEventTasksError
 import loadlimit.stat as stat
-from loadlimit.stat import flushtosql, flushtosql_shutdown, timecoro, Total
+from loadlimit.stat import (flushtosql, flushtosql_shutdown, SQLTotal,
+                            timecoro)
 from loadlimit.util import aiter
 
 
@@ -58,7 +58,7 @@ def test_flushtosql(num):
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
 
-    results = Total()
+    timedata = SQLTotal(sqlengine=engine)
 
     # Create coro to time
     @timecoro(name='churn')
@@ -73,35 +73,29 @@ def test_flushtosql(num):
         event.shutdown.set(exitcode=0)
 
     # Add to shutdown event
-    event.shutdown(partial(flushtosql_shutdown, statsdict=results.statsdict,
+    event.shutdown(partial(flushtosql_shutdown, statsdict=timedata.statsdict,
                            sqlengine=engine))
+
+    # Add flushtosql to recordperiod event
+    stat.recordperiod(flushtosql, schedule=False)
 
     # Run all the tasks
     with BaseLoop() as main:
 
-        # Add flushtosql to recordperiod event
-        stat.recordperiod(flushtosql, schedule=False)
-
         # Start every event, and ignore events that don't have any tasks
         stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
-                                statsdict=results.statsdict, flushlimit=5,
+                                statsdict=timedata.statsdict, flushlimit=5,
                                 sqlengine=engine)
 
         asyncio.ensure_future(run())
         main.start()
 
-    assert results.statsdict.numdata == 0
-    with engine.begin() as conn:
-        name = sha1('churn'.encode('utf-8')).hexdigest()
-        name = 'period_{}'.format(name)
-        df = read_sql_table(name, conn, index_col='index')
+    assert timedata.statsdict.numdata == 0
 
-    assert results.statsdict.total() == 0
-    df['delta'] = df['delta'].apply(partial(to_timedelta, unit='ns'))
+    df = timedata()
 
     assert isinstance(df, DataFrame)
     assert not df.empty
-    assert len(df) == num
 
 
 # ============================================================================

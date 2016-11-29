@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # loadlimit/stat.py
 # Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
@@ -15,12 +14,12 @@
 from asyncio import Lock
 from hashlib import sha1
 from collections import defaultdict, namedtuple
-from functools import wraps
+from functools import partial, wraps
 
 # Third-party imports
 import numpy as np
 import pandas as pd
-from pandas import DataFrame, Series, Timestamp
+from pandas import (DataFrame, read_sql_table, Series, Timestamp, to_timedelta)
 from pandas.io import sql
 
 # Local imports
@@ -367,6 +366,90 @@ class TimeSeries(Result):
         # Create dataframe out of the timeseries and get average response time
         # for each determined datetime period
         df = DataFrame(slist, index=list(range(numiter)))
+        startpoint = vals.start
+        for d in vals.daterange:
+            d = Timestamp(d, tz='UTC')
+            delta = df.query('end <= @d')['delta']
+
+            # Average response times
+            avg_response = delta.mean().total_seconds() * 1000
+            response.append(avg_response)
+
+            # Iterations per second
+            duration = (d - startpoint).total_seconds()
+            iter_per_sec = 0 if duration <= 0 else len(delta) / duration
+            rate.append(iter_per_sec)
+
+        daterange = vals.daterange
+        vals.response_result[name] = Series(response, index=daterange)
+        vals.rate_result[name] = Series(rate, index=daterange)
+
+
+# ============================================================================
+# SQL versions of Results
+# ============================================================================
+
+
+class SQLResult:
+    """Define iterating over values stored in an sql db"""
+
+    def __init__(self, statsdict=None, sqltbl='period', sqlengine=None):
+        super().__init__(statsdict=statsdict)
+        vals = self.vals
+        vals.sqltbl = sqltbl
+        vals.sqlengine = sqlengine
+
+    def __iter__(self):
+        vals = self.vals
+
+        with vals.sqlengine.begin() as conn:
+            for name in self._statsdict:
+                # Generate table name
+                curkey = sha1(name.encode('utf-8')).hexdigest()
+                tblname = '{}_{}'.format(vals.sqltbl, curkey)
+
+                # Get number of rows in db
+                qry = 'SELECT count(*) FROM {}'.format(tblname)
+                vals.numiter = sql.execute(qry, conn).fetchone()[0]
+                df = read_sql_table(tblname, conn, index_col='index',
+                                    parse_dates={'start': dict(utc=True),
+                                                 'end': dict(utc=True)})
+                df['delta'] = (df['delta'].
+                               apply(partial(to_timedelta, unit='ns')))
+                yield name, df
+
+
+class SQLTotal(SQLResult, Total):
+    """Calculate totals from sql db"""
+
+    def calculate(self, name, df):
+        """Calculate results"""
+        vals = self.vals
+
+        df = df['delta']
+        numiter = vals.numiter
+
+        # Calculate stats
+        r = [numiter]
+        for val in [df.median(), df.mean(), df.min(), df.max()]:
+            r.append(val.total_seconds() * 1000)
+        r.append(numiter / vals.duration)
+        r = vals.resultcls(*r)
+        vals.results[name] = Series(r, index=vals.index)
+
+
+class SQLTimeSeries(SQLResult, TimeSeries):
+    """Calculate time series results from sql db"""
+
+    def calculate(self, name, df):
+        """Calculate results"""
+        vals = self.vals
+
+        response = []
+        rate = []
+
+        # Create dataframe out of the timeseries and get average response time
+        # for each determined datetime period
         startpoint = vals.start
         for d in vals.daterange:
             d = Timestamp(d, tz='UTC')
