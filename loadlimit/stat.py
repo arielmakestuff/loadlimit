@@ -370,7 +370,7 @@ class TimeSeries(Result):
         startpoint = vals.start
         for d in vals.daterange:
             d = Timestamp(d, tz='UTC')
-            delta = df.query('end > @startpoint and end <= @d')['delta']
+            delta = df.query('end <= @d')['delta']
 
             # Average response times
             avg_response = delta.mean().total_seconds() * 1000
@@ -380,8 +380,6 @@ class TimeSeries(Result):
             duration = (d - startpoint).total_seconds()
             iter_per_sec = 0 if duration <= 0 else len(delta) / duration
             rate.append(iter_per_sec)
-
-            startpoint = d
 
         daterange = vals.daterange
         vals.response_result[name] = Series(response, index=daterange)
