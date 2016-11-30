@@ -33,7 +33,7 @@ from loadlimit import event
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('testlogging')
+pytestmark = pytest.mark.usefixtures('testlogging', 'fake_shutdown_event')
 
 
 # ============================================================================

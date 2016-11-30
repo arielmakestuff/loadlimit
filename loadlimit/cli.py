@@ -19,18 +19,26 @@ from contextlib import contextmanager, ExitStack
 from functools import partial
 from importlib import import_module
 from itertools import count
+import os
+from os.path import abspath, isdir, join as pathjoin
 import sys
+from tempfile import TemporaryDirectory
 
 # Third-party imports
 from pandas import Timedelta
 from pytz import timezone
+from sqlalchemy import create_engine
 from tqdm import tqdm
 
 # Local imports
 from . import event
+from . import stat
 from .core import BaseLoop, Client
+from .event import NoEventTasksError
 from .importhook import TaskImporter
-from .util import aiter, Namespace
+from .stat import (flushtosql, flushtosql_shutdown, Period, SQLTimeSeries,
+                   SQLTotal, TimeSeries, Total)
+from .util import aiter, LogLevel, Namespace
 
 
 # ============================================================================
@@ -71,7 +79,7 @@ async def update_tqdm(config, state, name):
         if state.reschedule is False:
             return
 
-async def stop_tqdm(result,*, manager=None, state=None, name=None):
+async def stop_tqdm(result, *, manager=None, state=None, name=None):
     """Stop tqdm updating"""
     progress = state.tqdm_progress[name]
     pbar = state.progressbar[name]
@@ -225,15 +233,32 @@ def process_options(config, args):
     # Setup TaskImporter
     llconfig['importer'] = TaskImporter(*args.taskfile)
 
+    # tqdm
     llconfig['show-progressbar'] = args.progressbar
+
+    # Setup cache
+    cache_type = args.cache
+    llconfig['cache'] = dict(type=cache_type)
+
+    # Setup export
+    llconfig['export'] = exportsection = {}
+    exportsection['type'] = export = args.export
+    if export is not None:
+        exportdir = args.exportdir
+        if exportdir is None:
+            exportdir = os.getcwd()
+        if not isdir(exportdir):
+            raise FileNotFoundError(exportdir)
+        exportsection['targetdir'] = exportdir
+
+    # Setup periods
+    if args.periods <= 1:
+        raise ValueError('periods option must be > 1')
+    llconfig['periods'] = args.periods
 
 
 def defaultoptions(parser):
-    """Create locust command"""
-    parser.add_argument('-c', '--config', default=None,
-                        metavar='CONFIG',
-                        help='Load configuration file %(metavar)s')
-
+    """cli arguments"""
     parser.add_argument(
         '-u', '--users', dest='numusers', default=1, type=int,
         help='Number of users/clients to simulate'
@@ -260,6 +285,31 @@ def defaultoptions(parser):
         help='Timezone to display dates in (default: UTC)'
     )
 
+    # cache arguments
+    parser.add_argument(
+        '-C', '--cache', dest='cache', choices=['memory', 'sqlite'],
+        default='memory',
+        help='What type of storage to use as the cache. Default: memory'
+    )
+
+    # export arguments
+    parser.add_argument(
+        '-E', '--export', dest='export', choices=['csv', 'sqlite'],
+        default=None,
+        help='What type of file to export results to.'
+    )
+
+    parser.add_argument(
+        '-e', '--export-dir', dest='exportdir', default=None,
+        help='The directory to export results to.'
+    )
+
+    parser.add_argument(
+        '-p', '--periods', dest='periods', type=int, default=8,
+        help='The number of time periods to show in the results. Default: 8'
+    )
+
+    # taskfiles
     parser.add_argument(
         'taskfile', metavar='FILE', nargs='+',
         help='Python module file to import as a task file'
@@ -278,6 +328,89 @@ def create():
     return parser
 
 
+class StatSetup:
+    """Context setting up time recording and storage"""
+
+    def __init__(self, config, state):
+        self._config = config
+        self._state = state
+        self._calcobj = (None, None)
+        self._results = None
+        self._statsdict = None
+
+    def __enter__(self):
+        config = self._config
+        state = self._state
+        llconfig = config['loadlimit']
+        self._statsdict = statsdict = Period()
+
+        if llconfig['cache']['type'] == 'memory':
+            self._calcobj = tuple(c(statsdict=statsdict)
+                                  for c in [Total, TimeSeries])
+            state.sqlengine = None
+        else:
+            cachefile = pathjoin(llconfig['tempdir'], 'cache.db')
+            connstr = 'sqlite:///{}'.format(cachefile)
+            state.sqlengine = engine = create_engine(connstr)
+            self._calcobj = tuple(
+                c(statsdict=statsdict, sqlengine=engine)
+                for c in [SQLTotal, SQLTimeSeries])
+
+            # Add to shutdown event
+            event.shutdown(partial(flushtosql_shutdown,
+                                   statsdict=statsdict,
+                                   sqlengine=engine))
+
+            # Add flushtosql to recordperiod event
+            stat.recordperiod(flushtosql, schedule=False)
+
+        return self
+
+    def __exit__(self, errtype, err, errtb):
+        total, timeseries = self._calcobj
+        statsdict = self._statsdict
+        with ExitStack() as stack:
+            # Set timeseries periods
+            timeseries.vals.periods = self._config['loadlimit']['periods']
+
+            if statsdict.start_date is None:
+                return
+
+            # Enter results contexts
+            for r in [total, timeseries]:
+                stack.enter_context(r)
+
+            # Run calculations
+            for name, df in total:
+                total.calculate(name, df)
+                timeseries.calculate(name, df)
+
+        self._results = (total.vals.results, ) + timeseries.vals.results
+
+        # Don't export
+        exportconfig = self._config['loadlimit']['export']
+        export_type = exportconfig['type']
+        if export_type is None:
+            return
+
+        exportdir = exportconfig['targetdir']
+
+        # Export values
+        for calcobj in [total, timeseries]:
+            calcobj.export(export_type, exportdir)
+
+    def startevent(self):
+        """Start events"""
+        engine = self._state.sqlengine
+        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
+                                statsdict=self._statsdict, sqlengine=engine)
+
+    @property
+    def results(self):
+        """Return stored results"""
+        return self._results
+
+
 def runloop(config, args, state):
     """Process cli options and start the loop"""
     llconfig = config['loadlimit']
@@ -293,9 +426,20 @@ def runloop(config, args, state):
     state.progressbar = {}
     state.tqdm_progress = {}
 
+    statsetup = StatSetup(config, state)
+
     # Run the loop
     with ExitStack() as stack:
-        main = stack.enter_context(MainLoop(clientcls=TQDMClient))
+        # Setup a temporary directory
+        llconfig['tempdir'] = abspath(
+            stack.enter_context(TemporaryDirectory()))
+
+        # Setup stats recording
+        stack.enter_context(statsetup)
+
+        # Enter main loop
+        main = stack.enter_context(MainLoop(loglevel=LogLevel.WARNING,
+                                            clientcls=TQDMClient))
 
         # Create and initialize clients
         numusers = llconfig['numusers']
@@ -310,6 +454,9 @@ def runloop(config, args, state):
                                          sched=True))
         stack.enter_context(tqdm_context(config, state, name='iteration',
                                          desc='Iterations'))
+
+        # Start events
+        statsetup.startevent()
 
         # Start the loop
         main.start()

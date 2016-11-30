@@ -12,6 +12,7 @@
 
 
 # Stdlib imports
+import os
 import sys
 
 # Third-party imports
@@ -106,16 +107,21 @@ def test_main_default_args():
 
     llconfig = config['loadlimit']
 
-    assert len(llconfig) == 5
-    for name in ['timezone', 'numusers', 'duration', 'importer',
-                 'show-progressbar']:
+    names = ['timezone', 'numusers', 'duration', 'importer',
+             'show-progressbar', 'cache', 'export', 'periods']
+    assert len(llconfig) == len(names)
+    for name in names:
         assert name in llconfig
 
     assert llconfig['numusers'] == 1
     assert llconfig['timezone'] == timezone('UTC')
     assert llconfig['duration'] == Timedelta('1s')
     assert llconfig['show-progressbar'] is True
+    assert llconfig['cache']['type'] == 'memory'
+    assert llconfig['export']['type'] is None
+    assert 'targetdir' not in llconfig['export']
     assert isinstance(llconfig['importer'], TaskImporter)
+    assert llconfig['periods'] == 8
 
 
 @pytest.mark.parametrize('val', ['fhjdsf', '42z', 'one zots'])
@@ -152,6 +158,75 @@ def test_main_bad_users():
         main(arglist=args, config=config)
 
     assert err.value.args == (expected, )
+
+
+@pytest.mark.parametrize('val', [0, 1])
+def test_main_periods_badvalue(val):
+    """Raise error if periods is given value <= 1"""
+    config = {}
+    args = ['-p', str(val), '-d', '1s', 'what']
+
+    expected = 'periods option must be > 1'
+    with pytest.raises(ValueError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (expected, )
+
+
+def test_main_export_baddir(monkeypatch):
+    """Raise error if directory does not exist"""
+
+    def fake_isdir(n):
+        """fake_isdir"""
+        return False
+
+    monkeypatch.setattr(cli, 'isdir', fake_isdir)
+    config = {}
+    args = ['-E', 'csv', '-e', '/not/exist', '-d', '1s', 'what']
+
+    expected = '/not/exist'
+    with pytest.raises(FileNotFoundError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (expected, )
+
+
+def test_main_export_targetdir(monkeypatch):
+    """Store export directory in internal config"""
+
+    def fake_isdir(n):
+        """fake_isdir"""
+        return True
+
+    monkeypatch.setattr(cli, 'isdir', fake_isdir)
+    config = {}
+    args = ['-E', 'csv', '-e', '/not/exist', '-d', '1s', 'what']
+
+    with pytest.raises(SystemExit):
+        main(arglist=args, config=config)
+
+    llconfig = config['loadlimit']
+    assert 'export' in llconfig
+
+    exportconfig = llconfig['export']
+    assert exportconfig['type'] == 'csv'
+    assert exportconfig['targetdir'] == '/not/exist'
+
+
+def test_main_export_nodir(monkeypatch):
+    """Use current directory if targetdir not given"""
+    config = {}
+    args = ['-E', 'csv', '-d', '1s', 'what']
+
+    with pytest.raises(SystemExit):
+        main(arglist=args, config=config)
+
+    llconfig = config['loadlimit']
+    assert 'export' in llconfig
+
+    exportconfig = llconfig['export']
+    assert exportconfig['type'] == 'csv'
+    assert exportconfig['targetdir'] == os.getcwd()
 
 
 # ============================================================================

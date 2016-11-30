@@ -13,12 +13,14 @@
 
 # Stdlib imports
 import asyncio
+from contextlib import contextmanager
 import logging
 
 # Third-party imports
 import pytest
 
 # Local imports
+import loadlimit.cli as cli
 import loadlimit.core as core
 import loadlimit.event as event
 import loadlimit.stat as stat
@@ -77,6 +79,17 @@ def fake_recordperiod_event(monkeypatch):
     fake_recordperiod = event.MultiEvent(event.RunFirst)
     fake_recordperiod(stat.updateperiod, runfirst=True)
     monkeypatch.setattr(stat, 'recordperiod', fake_recordperiod)
+
+
+@pytest.fixture
+def fake_tempdir(monkeypatch):
+    """Mock loadlimit.cli.TemporaryDirectory"""
+
+    @contextmanager
+    def fake_tempdir():
+        yield '/fake/path'
+
+    monkeypatch.setattr(cli, 'TemporaryDirectory', fake_tempdir)
 
 
 # ============================================================================

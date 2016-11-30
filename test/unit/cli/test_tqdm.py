@@ -24,7 +24,6 @@ import pytest
 import loadlimit.cli as cli
 from loadlimit.cli import main
 import loadlimit.core as core
-import loadlimit.event as event
 import loadlimit.importhook
 from loadlimit.importhook import mkmodule
 from loadlimit.util import Namespace
@@ -44,7 +43,9 @@ def pbar():
         yield pbar
 
 
-pytestmark = pytest.mark.usefixtures('cleanup', 'fake_shutdown_event')
+pytestmark = pytest.mark.usefixtures('cleanup', 'fake_shutdown_event',
+                                     'fake_recordperiod_event',
+                                     'fake_tempdir')
 
 
 # ============================================================================
@@ -101,6 +102,7 @@ def fake_sysexit(exitcode):
 # ============================================================================
 
 
+# @pytest.mark.skipif(True, reason='dev')
 def test_tqdm(monkeypatch, modpath):
     """Enable tqdm progress bars"""
     monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
@@ -118,7 +120,6 @@ def test_tqdm(monkeypatch, modpath):
     assert err.value.args == (0, )
 
     assert state.value > 0
-    print(state.value)
 
 
 def test_tqdm_reschedule(pbar, testloop):

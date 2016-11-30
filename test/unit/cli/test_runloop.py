@@ -22,8 +22,6 @@ import pytest
 # Local imports
 import loadlimit.cli as cli
 from loadlimit.cli import main
-import loadlimit.core as core
-import loadlimit.event as event
 import loadlimit.importhook
 from loadlimit.importhook import mkmodule
 from loadlimit.util import Namespace

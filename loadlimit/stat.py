@@ -15,12 +15,15 @@ from asyncio import Lock
 from hashlib import sha1
 from collections import defaultdict, namedtuple
 from functools import partial, wraps
+from pathlib import Path
+from time import mktime
 
 # Third-party imports
 import numpy as np
 import pandas as pd
 from pandas import (DataFrame, read_sql_table, Series, Timestamp, to_timedelta)
 from pandas.io import sql
+from sqlalchemy import create_engine
 
 # Local imports
 from .event import EventNotStartedError, MultiEvent, RunFirst
@@ -257,6 +260,24 @@ class Result:
         """Calculate results"""
         raise NotImplementedError
 
+    def export(self, export_type, exportdir):
+        """Export results"""
+        raise NotImplementedError
+
+    def exportdf(self, df, name, export_type, exportdir):
+        """Export dataframe"""
+        timestamp = int(mktime(now().timetuple()))
+        filename = '{}_{}'.format(name, timestamp)
+        exportdir = Path(exportdir)
+        if export_type == 'csv':
+            path = exportdir / '{}.{}'.format(filename, 'csv')
+            df.to_csv(str(path), index_label='Name')
+        else:  # export_type == 'sqlite':
+            path = str(exportdir / '{}.{}'.format(filename, 'db'))
+            sqlengine = create_engine('sqlite:///{}'.format(path))
+            with sqlengine.begin() as conn:
+                df.to_sql('total', conn)
+
     @property
     def statsdict(self):
         """Return stored period statsdict"""
@@ -309,6 +330,18 @@ class Total(Result):
         r.append(numiter / vals.duration)
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
+
+    def export(self, export_type, exportdir):
+        """Export total values"""
+        vals = self.vals
+        df = vals.results
+        totseries = [df['Total'].sum(), df['Median'].median(),
+                     df['Average'].mean(), df['Min'].min(), df['Max'].max(),
+                     df['Rate'].sum()]
+        totseries = {'Totals': Series(totseries, index=vals.index)}
+        totseries = DataFrame(totseries, columns=vals.index)
+        df.append(totseries)
+        self.exportdf(df, 'results', export_type, exportdir)
 
 
 class TimeSeries(Result):
@@ -384,6 +417,12 @@ class TimeSeries(Result):
         vals.response_result[name] = Series(response, index=daterange)
         vals.rate_result[name] = Series(rate, index=daterange)
 
+    def export(self, export_type, exportdir):
+        """Export total values"""
+        df_response, df_rate = self.vals.results
+        for name, df in zip(['response', 'rate'], [df_response, df_rate]):
+            self.exportdf(df, name, export_type, exportdir)
+
 
 # ============================================================================
 # SQL versions of Results
@@ -394,7 +433,7 @@ class SQLResult:
     """Define iterating over values stored in an sql db"""
 
     def __init__(self, statsdict=None, sqltbl='period', sqlengine=None):
-        super().__init__(statsdict=statsdict)
+        super().__init__(statsdict)
         vals = self.vals
         vals.sqltbl = sqltbl
         vals.sqlengine = sqlengine
@@ -433,7 +472,8 @@ class SQLTotal(SQLResult, Total):
         r = [numiter]
         for val in [df.median(), df.mean(), df.min(), df.max()]:
             r.append(val.total_seconds() * 1000)
-        r.append(numiter / vals.duration)
+        rval = 0 if vals.duration == 0 else (numiter / vals.duration)
+        r.append(rval)
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
