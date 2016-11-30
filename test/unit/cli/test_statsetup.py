@@ -100,10 +100,17 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         """Do nothing"""
         await asyncio.sleep(0)
 
+    # Create second coro to time
+    @timecoro(name='churn_two')
+    async def churn2(i):
+        """Do nothing"""
+        await asyncio.sleep(0)
+
     async def run():
         """run"""
         async for i in aiter(range(numiter)):
             await churn(i)
+            await churn2(i)
         event.shutdown.set(exitcode=0)
 
     statsetup = StatSetup(config, state)

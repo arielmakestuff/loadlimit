@@ -296,12 +296,13 @@ class Total(Result):
         ret = super().__enter__()
         vals = self.vals
 
-        # Duration (in seconds
+        # Duration (in seconds)
         vals.duration = (vals.end - vals.start).total_seconds()
         vals.results = {}
 
         vals.index = i = ['Total', 'Median', 'Average', 'Min', 'Max', 'Rate']
         vals.resultcls = namedtuple('ResultType', [n.lower() for n in i])
+        vals.delta = None
         return ret
 
     def __exit__(self, errtype, err, errtb):
@@ -321,13 +322,18 @@ class Total(Result):
         # Create dataframe out of the timeseries and get only the delta field
         df = DataFrame(slist, index=list(range(numiter)))
         delta = df['delta']
+        if vals.delta is None:
+            vals.delta = delta
+        else:
+            vals.delta.append(delta, ignore_index=True)
 
         # Calculate stats
         r = [numiter]
         for val in [delta.median(), delta.mean(), delta.min(),
                     delta.max()]:
             r.append(val.total_seconds() * 1000)
-        r.append(numiter / vals.duration)
+        duration = delta.sum().total_seconds()
+        r.append(numiter / duration)
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
@@ -335,8 +341,9 @@ class Total(Result):
         """Export total values"""
         vals = self.vals
         df = vals.results
-        totseries = [df['Total'].sum(), df['Median'].median(),
-                     df['Average'].mean(), df['Min'].min(), df['Max'].max(),
+        delta = vals.delta
+        totseries = [df['Total'].sum(), delta.median(),
+                     delta.mean(), df['Min'].min(), df['Max'].max(),
                      df['Rate'].sum()]
         totseries = {'Totals': Series(totseries, index=vals.index)}
         totseries = DataFrame(totseries, columns=vals.index)
@@ -399,7 +406,6 @@ class TimeSeries(Result):
         # Create dataframe out of the timeseries and get average response time
         # for each determined datetime period
         df = DataFrame(slist, index=list(range(numiter)))
-        startpoint = vals.start
         for d in vals.daterange:
             d = Timestamp(d, tz='UTC')
             delta = df.query('end <= @d')['delta']
@@ -409,7 +415,7 @@ class TimeSeries(Result):
             response.append(avg_response)
 
             # Iterations per second
-            duration = (d - startpoint).total_seconds()
+            duration = delta.sum().total_seconds()
             iter_per_sec = 0 if duration <= 0 else len(delta) / duration
             rate.append(iter_per_sec)
 
@@ -467,6 +473,10 @@ class SQLTotal(SQLResult, Total):
 
         df = df['delta']
         numiter = vals.numiter
+        if vals.delta is None:
+            vals.delta = df
+        else:
+            vals.delta.append(df, ignore_index=True)
 
         # Calculate stats
         r = [numiter]
