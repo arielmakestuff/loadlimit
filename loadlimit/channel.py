@@ -314,7 +314,7 @@ class DataChannel:
                 await gather(*t, loop=loop)
             await sleep(0)
 
-    async def send(self, **kwargs):
+    async def send(self, data):
         """Send data into the channel
 
         If the channel hasn't been opened yet, blocks until the channel is
@@ -326,9 +326,9 @@ class DataChannel:
                 await sleep(0)
                 continue
             break
-        await self._queue.put(kwargs)
+        await self._queue.put(data)
 
-    def put(self, **kwargs):
+    def put(self, data):
         """Put data immediately into the channel
 
         If the channel hasn't been opened yet, ChannelClosedError is raised.
@@ -336,7 +336,7 @@ class DataChannel:
         """
         if self._state == ChannelState.closed:
             raise ChannelClosedError
-        self._queue.put_nowait(kwargs)
+        self._queue.put_nowait(data)
 
     # --------------------
     # Descriptors

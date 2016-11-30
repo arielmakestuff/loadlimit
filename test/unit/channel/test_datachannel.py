@@ -401,33 +401,33 @@ def test_datachannel_synchronous(testloop, testchannel, asend):
     @testchannel(anchortype=AnchorType.first)
     async def one(data):
         """one"""
-        val.append((1, data['val']))
+        val.append((1, data))
 
     @testchannel(anchortype=AnchorType.first)
     async def two(data):
         """two"""
-        val.append((2, data['val']))
+        val.append((2, data))
 
     @testchannel
     async def three(data):
         """three"""
-        val.append((3, data['val']))
+        val.append((3, data))
 
     @testchannel
     async def four(data):
         """four"""
-        val.append((4, data['val']))
+        val.append((4, data))
 
     @testchannel(anchortype=AnchorType.last)
     async def five(data):
         """five"""
-        val.append((5, data['val']))
+        val.append((5, data))
 
     @testchannel(anchortype=AnchorType.last)
     async def six(data):
         """six"""
         nonlocal stop
-        val.append((6, data['val']))
+        val.append((6, data))
         stop = True
 
     async def run():
@@ -435,9 +435,9 @@ def test_datachannel_synchronous(testloop, testchannel, asend):
         nonlocal stop
         assert testchannel.state == ChannelState.listening
         if asend:
-            await testchannel.send(val=42)
+            await testchannel.send(42)
         else:
-            testchannel.put(val=42)
+            testchannel.put(42)
         while True:
             if stop:
                 break
@@ -462,33 +462,33 @@ def test_datachannel_async(testloop, testchannel, asend):
     @testchannel(anchortype=AnchorType.first)
     async def one(data):
         """one"""
-        val.append((1, data['val']))
+        val.append((1, data))
 
     @testchannel(anchortype=AnchorType.first)
     async def two(data):
         """two"""
-        val.append((2, data['val']))
+        val.append((2, data))
 
     @testchannel
     async def three(data):
         """three"""
-        val.append((3, data['val']))
+        val.append((3, data))
 
     @testchannel
     async def four(data):
         """four"""
-        val.append((4, data['val']))
+        val.append((4, data))
 
     @testchannel(anchortype=AnchorType.last)
     async def five(data):
         """five"""
-        val.append((5, data['val']))
+        val.append((5, data))
 
     @testchannel(anchortype=AnchorType.last)
     async def six(data):
         """six"""
         nonlocal stop
-        val.append((6, data['val']))
+        val.append((6, data))
         stop = True
 
     async def run():
@@ -497,9 +497,9 @@ def test_datachannel_async(testloop, testchannel, asend):
         assert testchannel.state == ChannelState.listening
         assert testchannel.isopen()
         if asend:
-            await testchannel.send(val=dataval)
+            await testchannel.send(dataval)
         else:
-            testchannel.put(val=dataval)
+            testchannel.put(dataval)
         while True:
             if stop:
                 break
@@ -528,7 +528,7 @@ def test_datachannel_pause(testloop, testchannel):
     @testchannel
     async def one(data):
         """one"""
-        val.append((1, data['val']))
+        val.append((1, data))
         testchannel.pause()
         assert testchannel.state == ChannelState.paused
         val.append('pause')
@@ -536,7 +536,7 @@ def test_datachannel_pause(testloop, testchannel):
     async def run():
         """run"""
         async for i in aiter(range(10)):
-            await testchannel.send(val=i)
+            await testchannel.send(i)
             await asyncio.sleep(0)
 
     with testchannel.open():
@@ -557,7 +557,7 @@ def test_datachannel_stop(testloop, testchannel):
     @testchannel
     async def one(data):
         """one"""
-        val.append((1, data['val']))
+        val.append((1, data))
         if testchannel.state != ChannelState.listening:
             with pytest.raises(NotListeningError):
                 testchannel.stop()
@@ -570,7 +570,7 @@ def test_datachannel_stop(testloop, testchannel):
     async def run():
         """run"""
         async for i in aiter(range(10)):
-            await testchannel.send(val=i)
+            await testchannel.send(i)
             await asyncio.sleep(0)
 
     with testchannel.open():
@@ -592,7 +592,7 @@ def test_datachannel_close(testloop, testchannel):
         """one"""
         if testchannel.state == ChannelState.closed:
             return
-        val.append((1, data['val']))
+        val.append((1, data))
         testchannel.close()
         assert testchannel.state == ChannelState.closed
         val.append('close')
@@ -601,7 +601,7 @@ def test_datachannel_close(testloop, testchannel):
         """run"""
         async for i in aiter(range(10)):
             try:
-                testchannel.put(val=i)
+                testchannel.put(i)
             except ChannelClosedError:
                 pass
             await asyncio.sleep(0)
@@ -628,7 +628,7 @@ def test_datachannel_send_wait(testloop, testchannel):
             testchannel.open()
             testchannel.start()
             await asyncio.sleep(1)
-        v = data['val']
+        v = data
         val.append((1, v))
         if v == 0:
             testchannel.close()
@@ -638,7 +638,7 @@ def test_datachannel_send_wait(testloop, testchannel):
     async def run():
         """run"""
         async for i in aiter(range(10)):
-            await testchannel.send(val=i)
+            await testchannel.send(i)
             await asyncio.sleep(0)
         await asyncio.sleep(1)
 
@@ -662,7 +662,7 @@ def test_no_listeners(testloop, testchannel):
     async def run():
         """run"""
         async for i in aiter(range(10)):
-            await testchannel.send(val=i)
+            await testchannel.send(i)
             await asyncio.sleep(0)
 
     with testchannel.open():
