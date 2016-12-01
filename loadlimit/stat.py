@@ -26,6 +26,7 @@ from pandas.io import sql
 from sqlalchemy import create_engine
 
 # Local imports
+from .channel import AnchorType, DataChannel
 from .event import EventNotStartedError, MultiEvent, RunFirst
 from .util import aiter, Namespace, now
 
@@ -35,7 +36,7 @@ from .util import aiter, Namespace, now
 # ============================================================================
 
 
-recordperiod = MultiEvent(RunFirst)
+recordperiod = DataChannel()
 
 
 # ============================================================================
@@ -117,8 +118,6 @@ def timecoro(corofunc=None, *, name=None):
         msg = 'name expected str, got {} instead'.format(type(name).__name__)
         raise TypeError(msg)
 
-    recordperiod.__getitem__(name)
-
     def deco(corofunc):
         """Function to decorate corofunc"""
 
@@ -130,8 +129,8 @@ def timecoro(corofunc=None, *, name=None):
             end = now()
 
             # Call recordperiod event with the start and end times
-            recordperiod.set(eventid=name, ignore=EventNotStartedError,
-                             start=start, end=end, callclear=True)
+            data = Namespace(eventid=name, start=start, end=end)
+            await recordperiod.send(data)
 
         return wrapper
 
@@ -146,7 +145,7 @@ def timecoro(corofunc=None, *, name=None):
 # ============================================================================
 
 
-@recordperiod(runfirst=True)
+@recordperiod(anchortype=AnchorType.first)
 async def updateperiod(data, *, statsdict=None, **kwargs):
     """Update a period/defaultdict(list) with period data point
 

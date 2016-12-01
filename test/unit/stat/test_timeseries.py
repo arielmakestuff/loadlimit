@@ -36,7 +36,7 @@ from loadlimit.util import aiter
 
 
 pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
-                                     'fake_recordperiod_event')
+                                     'fake_recordperiod_channel')
 
 
 # ============================================================================
@@ -60,11 +60,15 @@ def test_return_two_df():
             await churn(i)
         await channel.shutdown.send(0)
 
+    # Add to shutdown channel
+    channel.shutdown(stat.recordperiod.shutdown)
+
     # Run all the tasks
     with BaseLoop() as main:
 
         # Start every event, and ignore events that don't have any tasks
-        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
+        stat.recordperiod.open()
+        stat.recordperiod.start(asyncfunc=False,
                                 statsdict=results.statsdict)
 
         asyncio.ensure_future(run())
@@ -99,17 +103,18 @@ def test_sqltimeseries(num):
     # Add to shutdown event
     channel.shutdown(partial(flushtosql_shutdown, statsdict=timedata.statsdict,
                              sqlengine=engine))
+    channel.shutdown(stat.recordperiod.shutdown)
 
     # Add flushtosql to recordperiod event
-    stat.recordperiod(flushtosql, schedule=False)
+    stat.recordperiod(flushtosql)
 
     # Run all the tasks
     with BaseLoop() as main:
 
         # Start every event, and ignore events that don't have any tasks
-        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
-                                statsdict=timedata.statsdict, flushlimit=500,
-                                sqlengine=engine)
+        stat.recordperiod.open()
+        stat.recordperiod.start(asyncfunc=False, statsdict=timedata.statsdict,
+                                flushlimit=500, sqlengine=engine)
 
         asyncio.ensure_future(run())
         main.start()

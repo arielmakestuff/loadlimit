@@ -44,7 +44,7 @@ def pbar():
 
 
 pytestmark = pytest.mark.usefixtures('cleanup', 'fake_shutdown_channel',
-                                     'fake_recordperiod_event',
+                                     'fake_recordperiod_channel',
                                      'fake_tempdir')
 
 

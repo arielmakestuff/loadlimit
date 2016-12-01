@@ -36,7 +36,7 @@ from loadlimit.stat import Result, timecoro
 
 
 pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
-                                     'fake_recordperiod_event')
+                                     'fake_recordperiod_channel')
 
 
 # ============================================================================

@@ -355,6 +355,16 @@ class DataChannel:
         """Block until work queue is done"""
         await self._queue.join()
 
+    async def shutdown(self, *args, **kwargs):
+        """Shutdown and wait for listener to be cleared from the event loop
+
+        This will close the channel.
+
+        """
+        self.stop()
+        await self.join()
+        self.close()
+
     # --------------------
     # Descriptors
     # --------------------

@@ -33,7 +33,7 @@ from loadlimit.util import aiter
 
 
 pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
-                                     'fake_recordperiod_event')
+                                     'fake_recordperiod_channel')
 
 
 # ============================================================================
@@ -65,12 +65,15 @@ def test_updateperiod():
             await churn2(i)
         await channel.shutdown.send(0)
 
+    # Add to shutdown channel
+    channel.shutdown(stat.recordperiod.shutdown)
+
     # Run all the tasks
     with BaseLoop() as main:
 
         # Start every event, and ignore events that don't have any tasks
-        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
-                                statsdict=results.statsdict)
+        stat.recordperiod.open()
+        stat.recordperiod.start(asyncfunc=False, statsdict=results.statsdict)
 
         asyncio.ensure_future(run())
         main.start()

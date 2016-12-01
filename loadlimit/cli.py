@@ -360,7 +360,7 @@ class StatSetup:
                                      sqlengine=engine))
 
             # Add flushtosql to recordperiod event
-            stat.recordperiod(flushtosql, schedule=False)
+            stat.recordperiod(flushtosql)
 
         return self
 
@@ -400,8 +400,9 @@ class StatSetup:
     def startevent(self):
         """Start events"""
         engine = self._state.sqlengine
-        stat.recordperiod.start(ignore=NoEventTasksError, reschedule=True,
-                                statsdict=self._statsdict, sqlengine=engine)
+        channel.shutdown(stat.recordperiod.shutdown)
+        stat.recordperiod.open()
+        stat.recordperiod.start(statsdict=self._statsdict, sqlengine=engine)
 
     @property
     def results(self):

@@ -75,10 +75,11 @@ def fake_shutdown_channel(monkeypatch):
 
 
 @pytest.fixture
-def fake_recordperiod_event(monkeypatch):
-    """Setup fake recordperiod event"""
+def fake_recordperiod_channel(monkeypatch):
+    """Setup fake recordperiod channel"""
     fake_recordperiod = event.MultiEvent(event.RunFirst)
-    fake_recordperiod(stat.updateperiod, runfirst=True)
+    fake_recordperiod = channel.DataChannel()
+    fake_recordperiod(stat.updateperiod, anchortype=channel.AnchorType.first)
     monkeypatch.setattr(stat, 'recordperiod', fake_recordperiod)
 
 
