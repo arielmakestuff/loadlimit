@@ -15,7 +15,9 @@
 from asyncio import ensure_future, gather, Queue, sleep
 from collections import defaultdict, OrderedDict
 from collections.abc import MutableMapping
+from contextlib import contextmanager
 from enum import Enum
+from functools import partial
 from itertools import count
 
 # Third-party imports
@@ -33,11 +35,6 @@ ChannelState = Enum('ChannelState', ['closed', 'open', 'listening', 'paused'])
 AnchorType = Enum('AnchorType', ['none', 'first', 'last'])
 
 
-class Command(Enum):
-    """Base enum for commands"""
-    pass
-
-
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -50,11 +47,14 @@ class ChannelError(Exception):
 class ChannelOpenError(ChannelError):
     """Exception raised when trying to open an already opened channel"""
 
+
 class ChannelListeningError(ChannelError):
     """Exception raised when trying listen to an already listening channel"""
 
+
 class ChannelClosedError(ChannelError):
     """Exception for trying to operate on a closed channel"""
+
 
 class NotListeningError(ChannelError):
     """Exception for trying to continue listening when nothing is listnineg"""
@@ -139,7 +139,8 @@ class DataChannel:
         self._keygen = count()
         self._state = ChannelState.closed
 
-    def __call__(self, corofunc=None, anchortype=None, keyobj=None, **kwargs):
+    def __call__(self, corofunc=None, *, anchortype=None, keyobj=None,
+                 **kwargs):
         """Decorator to add a corofunc listener to the channel"""
 
         def addcoro(corofunc):
@@ -165,9 +166,9 @@ class DataChannel:
         raise KeyError(key)
 
     def __iter__(self):
-        keys = {k for a, tdict in self._tasks.items()
-                for k in tdict}
-        return iter(keys)
+        for tdict in self._tasks.values():
+            for k in tdict:
+                yield k
 
     def __contains__(self, key):
         for tdict in self._tasks.values():
@@ -197,7 +198,7 @@ class DataChannel:
         """Close the channel"""
         self.channel.close()
 
-    def add(self, corofunc, anchortype=None):
+    def add(self, corofunc, *, anchortype=None):
         """Add a coroutine function listener"""
         if not callable(corofunc):
             msg = 'corofunc expected callable, got {} instead'
@@ -348,6 +349,166 @@ class DataChannel:
         return self._state
 
     channel = ChannelContext()
+
+
+# ============================================================================
+# CommandChannel
+# ============================================================================
+
+
+class CommandChannel(DataChannel):
+
+    def __init__(self, cmdenum, *, queuecls=None):
+        if not isinstance(cmdenum, type) or not issubclass(cmdenum, Enum):
+            msg = 'cmdenum expected Enum subclass, got {}'
+            raise TypeError(msg.format(type(cmdenum).__name__))
+        elif not hasattr(cmdenum, 'none'):
+            msg = "'none' member of {} enum not found"
+            raise ValueError(msg.format(cmdenum.__name__))
+        super().__init__(queuecls=queuecls)
+        self._enum = cmdenum
+        self._qcls = partial(self._qcls, 1)
+        self._tasks = defaultdict(partial(defaultdict, OrderedDict))
+
+    def __getitem__(self, key):
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                try:
+                    ret = super().__getitem__(key)
+                except KeyError:
+                    pass
+                else:
+                    return ret
+        raise KeyError(key)
+
+    def __iter__(self):
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                for k in super().__iter__():
+                    yield k
+
+    def __contains__(self, key):
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                ret = super().__contains__(key)
+                if ret:
+                    return True
+        return False
+
+    def __len__(self):
+        ret = 0
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                ret = ret + super().__len__()
+        return ret
+
+    @contextmanager
+    def _switch_tasks(self, command):
+        """switch_tasks"""
+        root = self._tasks
+        self._tasks = t = root[command]
+        try:
+            yield t
+        finally:
+            self._tasks = root
+
+    def anchortype(self, key):
+        """Return the anchortype associated with the key"""
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                try:
+                    ret = super().anchortype(key)
+                except KeyError:
+                    pass
+                else:
+                    return ret
+        raise KeyError(key)
+
+    def findcommand(self, key):
+        """Return the command the key is subscribed to"""
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                try:
+                    super().__getitem__(key)
+                except KeyError:
+                    pass
+                else:
+                    return command
+        raise KeyError(key)
+
+    def add(self, corofunc, *, anchortype=None, command=None):
+        """Add a coroutine function listener to the given command"""
+        enum = self._enum
+        if command is None:
+            command = enum.none
+        if not isinstance(command, enum):
+            msg = 'command expected {}, got {} instead'
+            raise TypeError(msg.format(enum.__name__, type(command).__name__))
+
+        with self._switch_tasks(command):
+            super().add(corofunc, anchortype=anchortype)
+
+    def remove(self, key):
+        """Remove the added coro func with the given key"""
+        switch_tasks = self._switch_tasks
+        for command in self._tasks:
+            with switch_tasks(command):
+                try:
+                    super().remove(key)
+                except KeyError:
+                    pass
+                else:
+                    return
+        raise KeyError(key)
+
+    async def aremove(self, key):
+        """Asynchronously remove the added coro func with the given key"""
+        switch_tasks = self._switch_tasks
+        async for command in aiter(self._tasks):
+            with switch_tasks(command):
+                try:
+                    await super().aremove(key)
+                except KeyError:
+                    await sleep(0)
+                else:
+                    return
+        raise KeyError(key)
+
+    async def _runtasks(self, command, tasks, kwargs, loop=None):
+        """Run listeners syncronously"""
+        if command not in tasks:
+            return
+
+        await super()._runtasks(command, tasks[command], kwargs, loop=loop)
+
+    async def _aruntasks(self, command, tasks, kwargs, loop=None):
+        """Schedule listeners"""
+        if command not in tasks:
+            return
+
+        await super()._aruntasks(command, tasks[command], kwargs, loop=loop)
+
+    async def send(self, command):
+        """Send command into the channel"""
+        enum = self._enum
+        if not isinstance(command, enum):
+            msg = 'command expected {}, got {} instead'
+            raise TypeError(msg.format(enum.__name__, type(command).__name__))
+        await super().send(command)
+
+    def put(self, command):
+        """Put data immediately into the channel"""
+        enum = self._enum
+        if not isinstance(command, enum):
+            msg = 'command expected {}, got {} instead'
+            raise TypeError(msg.format(enum.__name__, type(command).__name__))
+        super().put(command)
 
 
 # ============================================================================
