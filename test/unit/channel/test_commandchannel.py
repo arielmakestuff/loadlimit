@@ -388,20 +388,20 @@ def test_put_command(testloop, testchannel, asyncfunc):
     val = []
 
     @testchannel(command=TempCommand.answer)
-    async def one(command):
+    async def one(data):
         """one"""
-        val.append(command)
+        val.append(data)
 
     async def run():
         """run"""
-        testchannel.put(TempCommand.answer)
+        testchannel.put(TempCommand.answer, 42)
         await asyncio.sleep(0.1)
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
         testloop.run_until_complete(run())
 
-    assert val == [TempCommand.answer]
+    assert val == [42]
 
 
 # ============================================================================
@@ -429,20 +429,20 @@ def test_run_tasks(testloop, testchannel, asyncfunc):
     val = []
 
     @testchannel(command=TempCommand.answer)
-    async def one(command):
+    async def one(data):
         """one"""
-        val.append(command)
+        val.append(data)
 
     async def run():
         """run"""
-        await testchannel.send(TempCommand.answer)
+        await testchannel.send(TempCommand.answer, 42)
         await asyncio.sleep(0.1)
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
         testloop.run_until_complete(run())
 
-    assert val == [TempCommand.answer]
+    assert val == [42]
 
 
 @pytest.mark.parametrize('asyncfunc', [True, False])
@@ -451,25 +451,25 @@ def test_run_notcommand(testloop, testchannel, asyncfunc):
     val = []
 
     @testchannel(command=TempCommand.answer)
-    async def one(command):
+    async def one(data):
         """one"""
-        val.append(command)
+        val.append(data+1)
 
     @testchannel(command=TempCommand.world)
-    async def two(command):
+    async def two(data):
         """two"""
-        val.append(command)
+        val.append(data+2)
 
     async def run():
         """run"""
-        await testchannel.send(TempCommand.world)
+        await testchannel.send(TempCommand.world, 42)
         await asyncio.sleep(0.1)
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
         testloop.run_until_complete(run())
 
-    assert val == [TempCommand.world]
+    assert val == [44]
 
 
 # @pytest.mark.parametrize('asyncfunc', [True, False])

@@ -480,35 +480,72 @@ class CommandChannel(DataChannel):
                     return
         raise KeyError(key)
 
-    async def _runtasks(self, command, tasks, kwargs, loop=None):
+    async def _runtasks(self, cmd_data, tasks, kwargs, loop=None):
         """Run listeners syncronously"""
+        command, data = cmd_data
         if command not in tasks:
             return
 
-        await super()._runtasks(command, tasks[command], kwargs, loop=loop)
+        await super()._runtasks(data, tasks[command], kwargs, loop=loop)
 
-    async def _aruntasks(self, command, tasks, kwargs, loop=None):
+    async def _aruntasks(self, cmd_data, tasks, kwargs, loop=None):
         """Schedule listeners"""
+        command, data = cmd_data
         if command not in tasks:
             return
 
-        await super()._aruntasks(command, tasks[command], kwargs, loop=loop)
+        await super()._aruntasks(data, tasks[command], kwargs, loop=loop)
 
-    async def send(self, command):
+    async def send(self, command, data=None):
         """Send command into the channel"""
         enum = self._enum
         if not isinstance(command, enum):
             msg = 'command expected {}, got {} instead'
             raise TypeError(msg.format(enum.__name__, type(command).__name__))
-        await super().send(command)
+        await super().send((command, data))
 
-    def put(self, command):
+    def put(self, command, data=None):
         """Put data immediately into the channel"""
         enum = self._enum
         if not isinstance(command, enum):
             msg = 'command expected {}, got {} instead'
             raise TypeError(msg.format(enum.__name__, type(command).__name__))
-        super().put(command)
+        super().put((command, data))
+
+
+# ============================================================================
+# Shutdown channel
+# ============================================================================
+
+
+ShutdownCommand = Enum('ShutdownCommand', ['none', 'start'])
+
+
+class ShutdownChannel(CommandChannel):
+    """Shutdown commands"""
+
+    def __init__(self):
+        super().__init__(ShutdownCommand)
+
+    def add(self, corofunc, *, anchortype=None):
+        """Add a coroutine function listener to the given command"""
+        return super().add(corofunc, anchortype=anchortype,
+                           command=ShutdownCommand.start)
+
+    def start(self, *, loop=None, **kwargs):
+        """Start listeners"""
+        super().start(loop=loop, asyncfunc=False, **kwargs)
+
+    async def send(self, data=None):
+        """Send command into the channel"""
+        await super().send(ShutdownCommand.start, data)
+
+    def put(self, data=None):
+        """Put command immediately into the channel"""
+        super().put(ShutdownCommand.start, data)
+
+
+shutdown = ShutdownChannel()
 
 
 # ============================================================================

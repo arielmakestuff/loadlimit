@@ -21,8 +21,8 @@ import pytest
 from sqlalchemy import create_engine
 
 # Local imports
+import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-import loadlimit.event as event
 from loadlimit.event import NoEventTasksError
 import loadlimit.stat as stat
 from loadlimit.stat import (flushtosql, flushtosql_shutdown, SQLTimeSeries,
@@ -35,7 +35,7 @@ from loadlimit.util import aiter
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('fake_shutdown_event',
+pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
                                      'fake_recordperiod_event')
 
 
@@ -58,7 +58,7 @@ def test_return_two_df():
         """run"""
         async for i in aiter(range(500)):
             await churn(i)
-        event.shutdown.set(exitcode=0)
+        await channel.shutdown.send(0)
 
     # Run all the tasks
     with BaseLoop() as main:
@@ -94,11 +94,11 @@ def test_sqltimeseries(num):
         """run"""
         async for i in aiter(range(num)):
             await churn(i)
-        event.shutdown.set(exitcode=0)
+        await channel.shutdown.send(0)
 
     # Add to shutdown event
-    event.shutdown(partial(flushtosql_shutdown, statsdict=timedata.statsdict,
-                           sqlengine=engine))
+    channel.shutdown(partial(flushtosql_shutdown, statsdict=timedata.statsdict,
+                             sqlengine=engine))
 
     # Add flushtosql to recordperiod event
     stat.recordperiod(flushtosql, schedule=False)

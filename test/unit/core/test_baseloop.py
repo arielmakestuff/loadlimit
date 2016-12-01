@@ -25,7 +25,7 @@ import pytest
 import loadlimit.core as core
 from loadlimit.core import BaseLoop
 from loadlimit.util import LogLevel, Namespace
-from loadlimit import event
+import loadlimit.channel as channel
 
 
 # ============================================================================
@@ -33,7 +33,7 @@ from loadlimit import event
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('testlogging', 'fake_shutdown_event')
+pytestmark = pytest.mark.usefixtures('testlogging', 'fake_shutdown_channel')
 
 
 # ============================================================================
@@ -163,12 +163,14 @@ def test_stopsignals(monkeypatch, caplog, signal, platform):
         'got signal {} ({})'.format(signal.name, signal),
         'shutdown',
         'stopping loop',
+        'cancelling tasks',
+        'tasks cancelled',
         'loop closed'
     ]
 
     # Insert needed extra messages if on windows
-    if platform == 'win32':
-        expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
+    # if platform == 'win32':
+    #     expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
 
     result = [r.message for r in caplog.records]
     assert result == expected
@@ -198,12 +200,14 @@ def test_stoperror(caplog):
         'got exception: what',
         'shutdown',
         'stopping loop',
+        'cancelling tasks',
+        'tasks cancelled',
         'loop closed'
     ]
 
     # Insert needed extra messages if on windows
-    if sys.platform == 'win32':
-        expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
+    # if sys.platform == 'win32':
+    #     expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
 
     result = [r.message for r in caplog.records]
     assert result == expected
@@ -234,12 +238,14 @@ def test_run_stoperror(caplog):
         'got exception: what',
         'shutdown',
         'stopping loop',
+        'cancelling tasks',
+        'tasks cancelled',
         'loop closed'
     ]
 
     # Insert needed extra messages if on windows
-    if sys.platform == 'win32':
-        expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
+    # if sys.platform == 'win32':
+    #     expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
 
     result = [r.message for r in caplog.records]
     assert result == expected
@@ -273,12 +279,14 @@ def test_run_stopsignals(monkeypatch, caplog, signal, platform):
         'got signal {} ({})'.format(signal.name, signal),
         'shutdown',
         'stopping loop',
+        'cancelling tasks',
+        'tasks cancelled',
         'loop closed'
     ]
 
     # Insert needed extra messages if on windows
-    if platform == 'win32':
-        expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
+    # if platform == 'win32':
+    #     expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
 
     result = [r.message for r in caplog.records]
     assert result == expected
@@ -324,7 +332,7 @@ def test_exitcode_loop_still_running():
     async def check_exitcode(baseloop, future):
         """Check exitcode"""
         future.set_result(baseloop.exitcode)
-        event.shutdown.set(exitcode=42)
+        await channel.shutdown.send(42)
 
     with BaseLoop() as loop:
         future = asyncio.get_event_loop().create_future()

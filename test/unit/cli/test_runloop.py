@@ -32,7 +32,7 @@ from loadlimit.util import Namespace
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('cleanup', 'fake_shutdown_event')
+pytestmark = pytest.mark.usefixtures('cleanup', 'fake_shutdown_channel')
 
 
 # ============================================================================

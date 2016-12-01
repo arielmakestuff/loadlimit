@@ -20,6 +20,7 @@ import logging
 import pytest
 
 # Local imports
+import loadlimit.channel as channel
 import loadlimit.cli as cli
 import loadlimit.core as core
 import loadlimit.event as event
@@ -66,11 +67,11 @@ def testloop(event_loop):
 
 
 @pytest.fixture
-def fake_shutdown_event(monkeypatch):
+def fake_shutdown_channel(monkeypatch):
     """Setup fake shutdown event"""
-    fake_shutdown = event.RunLast()
-    fake_shutdown(core.shutdown, runlast=True)
-    monkeypatch.setattr(event, 'shutdown', fake_shutdown)
+    fake_shutdown = channel.ShutdownChannel()
+    fake_shutdown(core.shutdown, anchortype=channel.AnchorType.last)
+    monkeypatch.setattr(channel, 'shutdown', fake_shutdown)
 
 
 @pytest.fixture

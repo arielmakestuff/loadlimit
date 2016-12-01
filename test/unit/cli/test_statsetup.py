@@ -23,8 +23,8 @@ from sqlalchemy import create_engine
 # Local imports
 import loadlimit.cli as cli
 from loadlimit.cli import StatSetup
+import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-import loadlimit.event as event
 from loadlimit.util import aiter, Namespace
 import loadlimit.stat as stat
 from loadlimit.stat import Result, timecoro
@@ -35,7 +35,7 @@ from loadlimit.stat import Result, timecoro
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('fake_shutdown_event',
+pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
                                      'fake_recordperiod_event')
 
 
@@ -111,7 +111,7 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         async for i in aiter(range(numiter)):
             await churn(i)
             await churn2(i)
-        event.shutdown.set(exitcode=0)
+        await channel.shutdown.send(0)
 
     statsetup = StatSetup(config, state)
 

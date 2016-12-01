@@ -26,8 +26,9 @@ import sys
 # Third-party imports
 
 # Local imports
+from . import channel
+from .channel import AnchorType
 from .util import LogLevel, Namespace
-from . import event
 
 
 # ============================================================================
@@ -35,12 +36,12 @@ from . import event
 # ============================================================================
 
 
-@event.shutdown(runlast=True)
-async def shutdown(result, *, manager=None):
+@channel.shutdown(anchortype=AnchorType.last)
+async def shutdown(exitcode, *, manager=None):
     """Coroutine that shuts down the loop"""
     # manager is an instance of BaseLoop
     manager.logger.info('shutdown')
-    manager._loopend.set_result(result.exitcode)
+    manager._loopend.set_result(exitcode)
 
 
 # ============================================================================
@@ -85,12 +86,15 @@ class BaseLoop:
         self.initsignals()
 
         # Start shutdown event
-        event.shutdown.start(loop=loop, manager=self)
+        channel.shutdown.open()
+        channel.shutdown.start(loop=loop, manager=self)
 
         return self
 
     def __exit__(self, exctype, exc, tb):
         """Perform cleanup tasks"""
+        channel.shutdown.stop()
+        channel.shutdown.close()
         self.cleanup()
         self._loop.close()
         self._loop = None
@@ -121,12 +125,12 @@ class BaseLoop:
     def cleanup(self):
         """Cancel any remaining tasks in the loop"""
         tasks = asyncio.Task.all_tasks()
-        if all(t.done() for t in tasks):
-            return
+        # if all(t.done() for t in tasks):
+        #     return
         logger = self.logger
         logger.info('cancelling tasks')
         future = asyncio.gather(*tasks)
-        future.cancel()
+        self._loop.call_soon_threadsafe(future.cancel)
         try:
             self._loop.run_until_complete(future)
         except CancelledError:
@@ -187,12 +191,12 @@ class BaseLoop:
         """Handle uncaught exceptions"""
         future = context['future']
         self.logger.info('got exception: {}'.format(future.exception()))
-        event.shutdown.set(exitcode=1)
+        channel.shutdown.put(1)
 
     def stopsignal(self, sig, exitcode, *args):
         """Schedule shutdown"""
         self.logger.info('got signal {} ({})'.format(sig.name, sig))
-        event.shutdown.set(exitcode=exitcode)
+        channel.shutdown.put(exitcode)
 
     async def always_sleep(self, duration=1):
         """Coroutine that always sleep for a given duration"""

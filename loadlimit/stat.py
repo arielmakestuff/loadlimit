@@ -207,7 +207,7 @@ async def flushtosql(data, *, statsdict=None, sqlengine=None, flushlimit=50000,
     await statsdict.aclearvals()
 
 
-async def flushtosql_shutdown(result, *, statsdict=None, sqlengine=None,
+async def flushtosql_shutdown(exitcode, *, statsdict=None, sqlengine=None,
                               sqltbl='period', **kwargs):
     """Flush statsdict to sql on shutdown"""
     with (await statsdict.lock):

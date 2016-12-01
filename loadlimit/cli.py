@@ -31,7 +31,7 @@ from sqlalchemy import create_engine
 from tqdm import tqdm
 
 # Local imports
-from . import event
+from . import channel
 from . import stat
 from .core import BaseLoop, Client
 from .event import NoEventTasksError
@@ -79,7 +79,7 @@ async def update_tqdm(config, state, name):
         if state.reschedule is False:
             return
 
-async def stop_tqdm(result, *, manager=None, state=None, name=None):
+async def stop_tqdm(exitcode, *, manager=None, state=None, name=None):
     """Stop tqdm updating"""
     progress = state.tqdm_progress[name]
     pbar = state.progressbar[name]
@@ -103,8 +103,7 @@ def tqdm_context(config, state, *, name=None, sched=False, **kwargs):
             state.tqdm_progress[name] = 0
             if sched:
                 asyncio.ensure_future(update_tqdm(config, state, name))
-                event.shutdown(partial(stop_tqdm, state=state, name=name),
-                               schedule=False)
+                channel.shutdown(partial(stop_tqdm, state=state, name=name))
         try:
             yield pbar
         finally:
@@ -195,8 +194,8 @@ class MainLoop(BaseLoop):
         async for client in aiter(self.clients):
             client.option.reschedule = False
 
-        # Call shutdown event
-        event.shutdown.set(exitcode=0)
+        # Send shutdown command
+        await channel.shutdown.send(0)
 
     @property
     def clients(self):
@@ -356,10 +355,9 @@ class StatSetup:
                 c(statsdict=statsdict, sqlengine=engine)
                 for c in [SQLTotal, SQLTimeSeries])
 
-            # Add to shutdown event
-            event.shutdown(partial(flushtosql_shutdown,
-                                   statsdict=statsdict,
-                                   sqlengine=engine))
+            # Subscribe to shutdown command
+            channel.shutdown(partial(flushtosql_shutdown, statsdict=statsdict,
+                                     sqlengine=engine))
 
             # Add flushtosql to recordperiod event
             stat.recordperiod(flushtosql, schedule=False)

@@ -19,8 +19,8 @@ from pandas import DataFrame
 import pytest
 
 # Local imports
+import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-import loadlimit.event as event
 from loadlimit.event import NoEventTasksError
 import loadlimit.stat as stat
 from loadlimit.stat import timecoro, Total
@@ -32,7 +32,7 @@ from loadlimit.util import aiter
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('fake_shutdown_event',
+pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
                                      'fake_recordperiod_event')
 
 
@@ -63,7 +63,7 @@ def test_updateperiod():
         async for i in aiter(range(500)):
             await churn(i)
             await churn2(i)
-        event.shutdown.set(exitcode=0)
+        await channel.shutdown.send(0)
 
     # Run all the tasks
     with BaseLoop() as main:
