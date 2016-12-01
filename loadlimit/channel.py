@@ -32,7 +32,7 @@ from .util import aiter
 
 
 ChannelState = Enum('ChannelState', ['closed', 'open', 'listening', 'paused'])
-ChannelCommand = Enum('ChannelCommand', ['stop'])
+ChannelCommand = Enum('ChannelCommand', ['stop', 'pause'])
 AnchorType = Enum('AnchorType', ['none', 'first', 'last'])
 
 
@@ -280,6 +280,7 @@ class DataChannel:
         elif state == ChannelState.open:
             raise NotListeningError
         self._state = ChannelState.paused
+        self._queue.put_nowait(ChannelCommand.pause)
 
     async def _listen(self, kwargs, *, asyncfunc=True, loop=None):
         """Listen for data on the queue"""
@@ -287,15 +288,16 @@ class DataChannel:
         task_done = queue.task_done
         tasks = self._tasks
         runfunc = self._aruntasks if asyncfunc else self._runtasks
+        data = None
         while True:
             state = self._state
-            if state in (ChannelState.closed, ChannelState.open):
+            if data == ChannelCommand.stop:
                 break
-            elif state != ChannelState.listening:
+            elif state == ChannelState.paused and data == ChannelCommand.pause:
                 await sleep(0)
                 continue
             data = await queue.get()
-            if data != ChannelCommand.stop:
+            if not isinstance(data, ChannelCommand):
                 ensure_future(runfunc(data, tasks, task_done, kwargs,
                                       loop=loop), loop=loop)
             else:
