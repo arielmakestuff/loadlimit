@@ -36,7 +36,7 @@ from .util import aiter, Namespace, now
 # ============================================================================
 
 
-recordperiod = DataChannel()
+recordperiod = DataChannel(name='recordperiod')
 
 
 # ============================================================================

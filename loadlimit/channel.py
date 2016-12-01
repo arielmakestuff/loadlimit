@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from enum import Enum
 from functools import partial
 from itertools import count
+import logging
 
 # Third-party imports
 
@@ -133,7 +134,7 @@ class DataChannel:
     # Methods
     # --------------------
 
-    def __init__(self, *, queuecls=None):
+    def __init__(self, *, queuecls=None, name='datachannel', logger=None):
         self._qcls = Queue if queuecls is None else queuecls
         self._tasks = defaultdict(OrderedDict)
         self._qkwargs = None
@@ -141,6 +142,9 @@ class DataChannel:
         self._availkeys = set()
         self._keygen = count()
         self._state = ChannelState.closed
+        self._name = name
+        self._logger = (logging.getLogger('loadlimit') if logger is None
+                        else logger)
 
     def __call__(self, corofunc=None, *, anchortype=None, keyobj=None,
                  **kwargs):
@@ -386,14 +390,14 @@ class DataChannel:
 
 class CommandChannel(DataChannel):
 
-    def __init__(self, cmdenum, *, queuecls=None):
+    def __init__(self, cmdenum, *, queuecls=None, name='commandchannel'):
         if not isinstance(cmdenum, type) or not issubclass(cmdenum, Enum):
             msg = 'cmdenum expected Enum subclass, got {}'
             raise TypeError(msg.format(type(cmdenum).__name__))
         elif not hasattr(cmdenum, 'none'):
             msg = "'none' member of {} enum not found"
             raise ValueError(msg.format(cmdenum.__name__))
-        super().__init__(queuecls=queuecls)
+        super().__init__(queuecls=queuecls, name=name)
         self._enum = cmdenum
         self._qcls = partial(self._qcls, 1)
         self._tasks = defaultdict(partial(defaultdict, OrderedDict))
@@ -557,7 +561,7 @@ class ShutdownChannel(CommandChannel):
     """Shutdown commands"""
 
     def __init__(self):
-        super().__init__(ShutdownCommand)
+        super().__init__(ShutdownCommand, name='shutdown')
 
     def add(self, corofunc, *, anchortype=None):
         """Add a coroutine function listener to the given command"""
