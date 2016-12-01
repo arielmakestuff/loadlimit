@@ -94,8 +94,8 @@ class BaseLoop:
     def __exit__(self, exctype, exc, tb):
         """Perform cleanup tasks"""
         channel.shutdown.stop()
-        channel.shutdown.close()
         self.cleanup()
+        channel.shutdown.close()
         self._loop.close()
         self._loop = None
         self.logger.info('loop closed')
@@ -124,6 +124,9 @@ class BaseLoop:
 
     def cleanup(self):
         """Cancel any remaining tasks in the loop"""
+        # Wait for shutdown channel to complete
+        self._loop.run_until_complete(channel.shutdown.join())
+
         tasks = asyncio.Task.all_tasks()
         # if all(t.done() for t in tasks):
         #     return

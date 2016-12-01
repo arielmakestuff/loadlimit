@@ -640,7 +640,7 @@ def test_datachannel_send_wait(testloop, testchannel):
         async for i in aiter(range(10)):
             await testchannel.send(i)
             await asyncio.sleep(0)
-        await asyncio.sleep(1)
+        await testchannel.join()
 
     with testchannel.open():
         testchannel.start()

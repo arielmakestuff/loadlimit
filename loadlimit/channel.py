@@ -32,6 +32,7 @@ from .util import aiter
 
 
 ChannelState = Enum('ChannelState', ['closed', 'open', 'listening', 'paused'])
+ChannelCommand = Enum('ChannelCommand', ['stop'])
 AnchorType = Enum('AnchorType', ['none', 'first', 'last'])
 
 
@@ -113,6 +114,8 @@ class ChannelContext:
         state = parent._state
         if state == ChannelState.closed:
             return
+        elif state != ChannelState.open:
+            parent.stop()
         parent._queue = None
         parent._qkwargs = None
         parent._state = ChannelState.closed
@@ -267,6 +270,7 @@ class DataChannel:
         elif state == ChannelState.open:
             raise NotListeningError
         self._state = ChannelState.open
+        self._queue.put_nowait(ChannelCommand.stop)
 
     def pause(self):
         """Pause scheduling listeners"""
@@ -280,6 +284,7 @@ class DataChannel:
     async def _listen(self, kwargs, *, asyncfunc=True, loop=None):
         """Listen for data on the queue"""
         queue = self._queue
+        task_done = queue.task_done
         tasks = self._tasks
         runfunc = self._aruntasks if asyncfunc else self._runtasks
         while True:
@@ -290,10 +295,14 @@ class DataChannel:
                 await sleep(0)
                 continue
             data = await queue.get()
-            ensure_future(runfunc(data, tasks, kwargs, loop=loop), loop=loop)
+            if data != ChannelCommand.stop:
+                ensure_future(runfunc(data, tasks, task_done, kwargs,
+                                      loop=loop), loop=loop)
+            else:
+                task_done()
             await sleep(0)
 
-    async def _runtasks(self, data, tasks, kwargs, loop=None):
+    async def _runtasks(self, data, tasks, task_done, kwargs, loop=None):
         """Run listeners syncronously"""
         order = [AnchorType.first, AnchorType.none, AnchorType.last]
 
@@ -303,8 +312,10 @@ class DataChannel:
             async for corofunc in aiter(generator):
                 await corofunc(data, **kwargs)
                 await sleep(0)
+            await sleep(0)
+        task_done()
 
-    async def _aruntasks(self, data, tasks, kwargs, loop=None):
+    async def _aruntasks(self, data, tasks, task_done, kwargs, loop=None):
         """Schedule listeners"""
         order = [AnchorType.first, AnchorType.none, AnchorType.last]
 
@@ -314,6 +325,7 @@ class DataChannel:
             if t:
                 await gather(*t, loop=loop)
             await sleep(0)
+        task_done()
 
     async def send(self, data):
         """Send data into the channel
@@ -338,6 +350,10 @@ class DataChannel:
         if self._state == ChannelState.closed:
             raise ChannelClosedError
         self._queue.put_nowait(data)
+
+    async def join(self):
+        """Block until work queue is done"""
+        await self._queue.join()
 
     # --------------------
     # Descriptors
@@ -480,21 +496,25 @@ class CommandChannel(DataChannel):
                     return
         raise KeyError(key)
 
-    async def _runtasks(self, cmd_data, tasks, kwargs, loop=None):
+    async def _runtasks(self, cmd_data, tasks, task_done, kwargs, loop=None):
         """Run listeners syncronously"""
         command, data = cmd_data
         if command not in tasks:
+            task_done()
             return
 
-        await super()._runtasks(data, tasks[command], kwargs, loop=loop)
+        await super()._runtasks(data, tasks[command], task_done, kwargs,
+                                loop=loop)
 
-    async def _aruntasks(self, cmd_data, tasks, kwargs, loop=None):
+    async def _aruntasks(self, cmd_data, tasks, task_done, kwargs, loop=None):
         """Schedule listeners"""
         command, data = cmd_data
         if command not in tasks:
+            task_done()
             return
 
-        await super()._aruntasks(data, tasks[command], kwargs, loop=loop)
+        await super()._aruntasks(data, tasks[command], task_done, kwargs,
+                                 loop=loop)
 
     async def send(self, command, data=None):
         """Send command into the channel"""

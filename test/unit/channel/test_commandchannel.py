@@ -12,7 +12,7 @@
 
 
 # Stdlib imports
-import asyncio
+# import asyncio
 from asyncio import Queue, PriorityQueue, LifoQueue
 from enum import Enum
 
@@ -395,7 +395,7 @@ def test_put_command(testloop, testchannel, asyncfunc):
     async def run():
         """run"""
         testchannel.put(TempCommand.answer, 42)
-        await asyncio.sleep(0.1)
+        await testchannel.join()
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
@@ -416,7 +416,7 @@ def test_run_notasks(testloop, testchannel, asyncfunc):
     async def run():
         """run"""
         await testchannel.send(TempCommand.answer)
-        await asyncio.sleep(0.1)
+        await testchannel.join()
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
@@ -436,7 +436,7 @@ def test_run_tasks(testloop, testchannel, asyncfunc):
     async def run():
         """run"""
         await testchannel.send(TempCommand.answer, 42)
-        await asyncio.sleep(0.1)
+        await testchannel.join()
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
@@ -463,35 +463,13 @@ def test_run_notcommand(testloop, testchannel, asyncfunc):
     async def run():
         """run"""
         await testchannel.send(TempCommand.world, 42)
-        await asyncio.sleep(0.1)
+        await testchannel.join()
 
     with testchannel.open():
         testchannel.start(asyncfunc=asyncfunc)
         testloop.run_until_complete(run())
 
     assert val == [44]
-
-
-# @pytest.mark.parametrize('asyncfunc', [True, False])
-# def test_run_tasks(testloop, testchannel, asyncfunc):
-#     """Run the loop with tasks added"""
-#     val = []
-
-#     @testchannel(command=TempCommand.answer)
-#     async def one(command):
-#         """one"""
-#         val.append(command)
-
-#     async def run():
-#         """run"""
-#         await testchannel.send(TempCommand.answer)
-#         await asyncio.sleep(0.1)
-
-#     with testchannel.open():
-#         testchannel.start(asyncfunc=asyncfunc)
-#         testloop.run_until_complete(run())
-
-#     assert val == [TempCommand.answer]
 
 
 # ============================================================================
