@@ -374,6 +374,8 @@ class StatSetup:
             if statsdict.start_date is None:
                 return
 
+            print('Analyzing results', end='')
+
             # Enter results contexts
             for r in [total, timeseries]:
                 stack.enter_context(r)
@@ -382,6 +384,9 @@ class StatSetup:
             for name, df in total:
                 total.calculate(name, df)
                 timeseries.calculate(name, df)
+                print('.', end='')
+
+            print('OK')
 
         self._results = (total.vals.results, ) + timeseries.vals.results
 
@@ -391,11 +396,14 @@ class StatSetup:
         if export_type is None:
             return
 
+        print('Exporting', end='')
         exportdir = exportconfig['targetdir']
 
         # Export values
         for calcobj in [total, timeseries]:
             calcobj.export(export_type, exportdir)
+            print('.', end='')
+        print('OK')
 
     def startevent(self):
         """Start events"""
@@ -460,6 +468,7 @@ def runloop(config, args, state):
         # Start the loop
         main.start()
 
+    print('exit')
     return main.exitcode
 
 
