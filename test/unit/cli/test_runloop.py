@@ -69,6 +69,9 @@ class TestTask(TaskABC):
 
     async def init(self, config, state):
         state.value = 0
+
+    async def shutdown(self, config, state):
+        pass
         """.strip()
         return src
 

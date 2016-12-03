@@ -295,6 +295,11 @@ class TaskABC(metaclass=ABCMeta):
         """Coroutine that initializes the task """
         raise NotImplementedError
 
+    @abstractmethod
+    async def shutdown(self, config, state):
+        """Coroutine that shuts down the task"""
+        raise NotImplementedError
+
 
 # ============================================================================
 # Task
@@ -315,6 +320,10 @@ class Task(TaskABC):
 
     async def init(self, config, state):
         """Initialize the task"""
+        pass
+
+    async def shutdown(self, config, state):
+        """Shutdown the task"""
         pass
 
 
@@ -368,6 +377,13 @@ class Client(TaskABC):
         """Initialize the task"""
         ensure_future = asyncio.ensure_future
         t = [ensure_future(corofunc.init(config, state))
+             for corofunc in self._corofunc]
+        await asyncio.gather(*t)
+
+    async def shutdown(self, config, state):
+        """Shutdown the task"""
+        ensure_future = asyncio.ensure_future
+        t = [ensure_future(corofunc.shutdown(config, state))
              for corofunc in self._corofunc]
         await asyncio.gather(*t)
 

@@ -66,6 +66,10 @@ def test_task_wrap_corofunc(testloop):
     f = asyncio.gather(*[t(None) for t in tasks])
     testloop.run_until_complete(f)
 
+    # Shutdown each task
+    f = asyncio.gather(*[t.shutdown(None, None) for t in tasks])
+    testloop.run_until_complete(f)
+
     assert set(val) == set([1, 2])
 
 

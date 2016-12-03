@@ -176,6 +176,15 @@ class TQDMClient(Client):
             pbar.update(1)
             state.tqdm_progress[pbarkey] += 1
 
+    async def shutdown(self, config, state):
+        """Shutdown the client"""
+        pbarkey = 'shutdown'
+        await super().shutdown(config, state)
+        pbar = state.progressbar.get(pbarkey, None)
+        if pbar is not None:
+            pbar.update(1)
+            state.tqdm_progress[pbarkey] += 1
+
 
 # ============================================================================
 # MainLoop
@@ -228,6 +237,17 @@ class MainLoop(BaseLoop):
         # Schedule clients on the loop
         for c in clients:
             ensure_future(c(state), loop=loop)
+
+    def shutdown(self, config, state):
+        """Shutdown clients"""
+        loop = self.loop
+
+        # Tell clients to shutdown
+        ensure_future = asyncio.ensure_future
+        t = [ensure_future(c.shutdown(config, state), loop=loop)
+             for c in self._clients]
+        f = asyncio.gather(*t, loop=loop)
+        loop.run_until_complete(f)
 
     def spawn_clients(self, config):
         """Spawns clients according the given config"""
@@ -585,6 +605,11 @@ def runloop(config, args, state):
 
         # Start the loop
         main.start()
+
+        # Tell clients to shutdown
+        with tqdm_context(config, state, name='shutdown',
+                          desc='Stopping Clients', total=numusers):
+            main.shutdown(config, state)
 
     print('exit')
     return main.exitcode

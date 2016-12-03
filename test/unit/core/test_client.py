@@ -81,6 +81,9 @@ def test_init_mixedargs(testloop):
         async def init(self, config, state):
             """init"""
 
+        async def shutdown(self, config, state):
+            """shutdown"""
+
     c = Client(Task(one), [Task(two), Task(three)], Task(four), [Five])
     testloop.run_until_complete(c(None))
 

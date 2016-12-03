@@ -82,6 +82,9 @@ class TestTask(TaskABC):
 
     async def init(self, config, state):
         state.value = 0
+
+    async def shutdown(self, config, state):
+        pass
         """.strip()
         return src
 
@@ -196,6 +199,9 @@ def test_tqdm_nopbar(testloop):
             state.value += 1
 
         async def init(self, config, state):
+            """noop"""
+
+        async def shutdown(self, config, state):
             """noop"""
 
     client = cli.TQDMClient(Task)
