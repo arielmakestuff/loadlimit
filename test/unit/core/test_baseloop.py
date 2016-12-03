@@ -47,8 +47,8 @@ def test_init():
     assert baseloop._loop is not None
     assert isinstance(baseloop._loop, asyncio.AbstractEventLoop)
     assert baseloop._loopend is None
-    assert baseloop._loglevel == LogLevel.INFO
-    assert baseloop._logname == 'loadlimit'
+    assert baseloop._logoptions == {'init-logging': True, 'level':
+                                    LogLevel.INFO, 'name': 'loadlimit'}
 
 
 def test_init_non_looptype():
@@ -70,6 +70,22 @@ def test_loglevel():
     for loglevel in LogLevel:
         baseloop = BaseLoop(loglevel=loglevel)
         assert baseloop.loglevel == loglevel
+
+
+def test_loglevel_noninit(monkeypatch):
+    """Setting loglevel outside of init triggers re-init of logging"""
+
+    called = False
+
+    def fake_initlogging(self):
+        """fake_initlogging"""
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(BaseLoop, 'initlogging', fake_initlogging)
+    b = BaseLoop()
+    b.loglevel = LogLevel.WARNING
+    assert called is True
 
 
 def test_loglevel_badvalue():
@@ -111,11 +127,12 @@ def test_loglevel_switch(caplog, expected):
     """Messages logged in correct level after switching loglevel"""
     level, msg, nummsg = expected
     baseloop = BaseLoop(loglevel=level)
+    baseloop.initlogging()
     logger = baseloop.logger
     with caplog.at_level(level.value):
         logger.info('called info')
         logger.warning('called warning')
-        records = caplog.records
+        records = [r for r in caplog.records if r.name != 'asyncio']
         assert len(records) == nummsg
         assert records[0].message == msg
 

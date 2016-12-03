@@ -16,11 +16,14 @@ from argparse import ArgumentParser
 import asyncio
 from collections import defaultdict
 from contextlib import contextmanager, ExitStack
+from datetime import datetime
 from functools import partial
 from importlib import import_module
 from itertools import count
+from logging import FileHandler, Formatter
 import os
 from os.path import abspath, isdir, join as pathjoin
+from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 
@@ -34,11 +37,10 @@ from tqdm import tqdm
 from . import channel
 from . import stat
 from .core import BaseLoop, Client
-from .event import NoEventTasksError
 from .importhook import TaskImporter
 from .stat import (flushtosql, flushtosql_shutdown, Period, SQLTimeSeries,
                    SQLTotal, TimeSeries, Total)
-from .util import aiter, LogLevel, Namespace
+from .util import aiter, LogLevel, Namespace, TZ_UTC
 
 
 # ============================================================================
@@ -57,6 +59,40 @@ PROGNAME = 'loadlimit'
 def commalist(commastr):
     """Transforms a comma-delimited string into a list of strings"""
     return [] if not commastr else [c for c in commastr.split(',') if c]
+
+
+class LoadLimitFormatter(Formatter):
+    """Define nanoseconds for formatTime"""
+
+    converter = partial(datetime.fromtimestamp, tz=TZ_UTC)
+
+    def formatTime(self, record, datefmt=None):
+        """
+        Return the creation time of the specified LogRecord as formatted text.
+
+        This method should be called from format() by a formatter which wants
+        to make use of a formatted time. This method can be overridden in
+        formatters to provide for any specific requirement, but the basic
+        behaviour is as follows: if datefmt (a string) is specified, it is used
+        with datetime.strftime() to format the creation time of the record.
+        Otherwise, the ISO8601 format is used. The resulting string is
+        returned. This function uses a user-configurable function to convert
+        the creation time to a tuple. By default,
+        datetime.datetime.fromtimestamp() is used; to change this for a
+        particular formatter instance, set the 'converter' attribute to a
+        function with the same signature as time.localtime() or time.gmtime().
+        To change it for all formatters, for example if you want all logging
+        times to be shown in GMT, set the 'converter' attribute in the
+        Formatter class.
+        """
+        ct = self.converter(record.created)
+        if datefmt:
+            ct = self.converter(record.created)
+            s = ct.strftime(datefmt)
+        else:
+            t = ct.strftime(self.default_time_format)
+            s = self.default_msec_format % (t, record.msecs)
+        return s
 
 
 # ============================================================================
@@ -154,6 +190,25 @@ class MainLoop(BaseLoop):
         self._clients = frozenset()
         self._clientcls = Client if clientcls is None else clientcls
 
+    def initloghandlers(self, formatter):
+        """Setup log handlers"""
+        ret = super().initloghandlers(formatter)
+        options = self._logoptions
+        logfile = options.get('logfile', None)
+        if logfile:
+            fh = FileHandler(logfile)
+            fh.setLevel(LogLevel.DEBUG.value)
+            fh.setFormatter(formatter)
+            ret = [fh]
+        return ret
+
+    def initlogformatter(self):
+        """Setup log formatter"""
+        options = self._logoptions
+        formatter = super().initlogformatter()
+        formatter.converter = partial(datetime.fromtimestamp, tz=options['tz'])
+        return formatter
+
     def init(self, config, state):
         """Initialize clients"""
         clients = frozenset(self.spawn_clients(config))
@@ -208,52 +263,88 @@ class MainLoop(BaseLoop):
 # ============================================================================
 
 
-def process_options(config, args):
-    """Process options defined in defaultoptions()"""
-    llconfig = config['loadlimit']
+class ProcessOptions:
+    """Process cli options"""
 
-    # Set timezone info
-    llconfig['timezone'] = timezone(args.timezone)
+    def __call__(self, config, args):
+        llconfig = config['loadlimit']
+        order = ['timezone', 'numusers', 'duration', 'taskimporter', 'tqdm',
+                 'cache', 'export', 'periods', 'logging', 'verbose']
+        for name in order:
+            getattr(self, name)(llconfig, args)
 
-    # Setup number of users
-    numusers = args.numusers
-    if numusers == 0:
-        raise ValueError('users option expected value > 0, got {}'.
-                         format(numusers))
-    llconfig['numusers'] = numusers
+    def timezone(self, config, args):
+        """Setup timezone config"""
+        config['timezone'] = timezone(args.timezone)
 
-    # Set duration
-    delta = Timedelta(args.duration)
-    if not isinstance(delta, Timedelta):
-        raise ValueError('duration option got invalid value {!r}'.
-                         format(args.duration))
-    llconfig['duration'] = delta
+    def numusers(self, config, args):
+        """Setup number of users config"""
+        numusers = args.numusers
+        if numusers == 0:
+            raise ValueError('users option expected value > 0, got {}'.
+                             format(numusers))
+        config['numusers'] = numusers
 
-    # Setup TaskImporter
-    llconfig['importer'] = TaskImporter(*args.taskfile)
+    def duration(self, config, args):
+        """Setup duration config"""
+        delta = Timedelta(args.duration)
+        if not isinstance(delta, Timedelta):
+            raise ValueError('duration option got invalid value {!r}'.
+                             format(args.duration))
+        config['duration'] = delta
 
-    # tqdm
-    llconfig['show-progressbar'] = args.progressbar
+    def taskimporter(self, config, args):
+        """Setup task importer config"""
+        config['importer'] = TaskImporter(*args.taskfile)
 
-    # Setup cache
-    cache_type = args.cache
-    llconfig['cache'] = dict(type=cache_type)
+    def tqdm(self, config, args):
+        """Setup tqdm config"""
+        config['show-progressbar'] = args.progressbar
 
-    # Setup export
-    llconfig['export'] = exportsection = {}
-    exportsection['type'] = export = args.export
-    if export is not None:
-        exportdir = args.exportdir
-        if exportdir is None:
-            exportdir = os.getcwd()
-        if not isdir(exportdir):
-            raise FileNotFoundError(exportdir)
-        exportsection['targetdir'] = exportdir
+    def cache(self, config, args):
+        """Setup cache config"""
+        cache_type = args.cache
+        config['cache'] = dict(type=cache_type)
 
-    # Setup periods
-    if args.periods <= 1:
-        raise ValueError('periods option must be > 1')
-    llconfig['periods'] = args.periods
+    def export(self, config, args):
+        """Setup export config"""
+        config['export'] = exportsection = {}
+        exportsection['type'] = export = args.export
+        if export is not None:
+            exportdir = args.exportdir
+            if exportdir is None:
+                exportdir = os.getcwd()
+            if not isdir(exportdir):
+                raise FileNotFoundError(exportdir)
+            exportsection['targetdir'] = exportdir
+
+    def periods(self, config, args):
+        """Setup period config"""
+        if args.periods <= 1:
+            raise ValueError('periods option must be > 1')
+        config['periods'] = args.periods
+
+    def logging(self, config, args):
+        """Setup logging config"""
+        if args.uselogfile:
+            logfile = args.logfile
+            path = (Path.cwd() / '{}.log'.format(PROGNAME)
+                    if logfile is None else Path(logfile))
+            if not path.parent.is_dir():
+                raise FileNotFoundError(str(path.parent))
+            elif path.is_dir():
+                raise IsADirectoryError(str(path))
+            config['logging'] = {'logfile': str(path)}
+
+    def verbose(self, config, args):
+        """Setup verbosity config"""
+        verbosity = 10 if args.verbosity >= 3 else (3 - args.verbosity) * 10
+        logsection = config.setdefault('logging', {})
+        loglevels = {l.value: l for l in LogLevel}
+        logsection['loglevel'] = loglevels[verbosity]
+
+
+process_options = ProcessOptions()
 
 
 def defaultoptions(parser):
@@ -312,6 +403,24 @@ def defaultoptions(parser):
     parser.add_argument(
         'taskfile', metavar='FILE', nargs='+',
         help='Python module file to import as a task file'
+    )
+
+    # logging
+    parser.add_argument(
+        '-L', '--enable-logfile', dest='uselogfile', action='store_true',
+        help='Enable logging to a logfile'
+    )
+
+    parser.add_argument(
+        '-l', '--logfile', metavar='FILE', dest='logfile', default=None,
+        help=('If logging to a file is enabled, log to FILE. Default: {}.log'.
+              format(PROGNAME))
+    )
+
+    # Set loglevel
+    parser.add_argument(
+        '-v', '--verbose', dest='verbosity', action='count', default=0,
+        help='Increase verbosity'
     )
 
     parser.set_defaults(_main=runloop)
@@ -445,8 +554,17 @@ def runloop(config, args, state):
         stack.enter_context(statsetup)
 
         # Enter main loop
-        main = stack.enter_context(MainLoop(loglevel=LogLevel.WARNING,
+        loglevel = llconfig['logging']['loglevel']
+        main = stack.enter_context(MainLoop(loglevel=loglevel,
                                             clientcls=TQDMClient))
+
+        # Setup main loop logging
+        logfile = llconfig.get('logging', {}).get('logfile', None)
+        main.initlogging(datefmt='%Y-%m-%d %H:%M:%S.%f',
+                         style='{',
+                         format='{asctime} {levelname} {name}: {message}',
+                         fmtcls=LoadLimitFormatter, tz=llconfig['timezone'],
+                         logfile=logfile)
 
         # Create and initialize clients
         numusers = llconfig['numusers']

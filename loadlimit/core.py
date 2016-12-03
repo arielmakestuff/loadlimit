@@ -28,7 +28,7 @@ import sys
 # Local imports
 from . import channel
 from .channel import AnchorType
-from .util import LogLevel, Namespace
+from .util import Logger, LogLevel, Namespace
 
 
 # ============================================================================
@@ -55,9 +55,11 @@ class BaseLoop:
     def __init__(self, *, loop=None, logname='loadlimit',
                  loglevel=LogLevel.INFO):
         # Setup logging
-        self._loglevel = None
-        self._logname = logname
+        self._logger = Logger(name=logname)
+        self._logoptions = o = {'init-logging': False,
+                                'name': logname}
         self.loglevel = loglevel
+        o['init-logging'] = True
 
         # Setup loop
         if (loop is not None and
@@ -140,10 +142,32 @@ class BaseLoop:
             pass
         logger.info('tasks cancelled')
 
-    def initlogging(self):
+    def initloghandlers(self, formatter):
+        """Setup log handlers"""
+        level = self.loglevel.value
+
+        # Create console handler
+        ch = logging.StreamHandler()
+        ch.setLevel(level)
+        ch.setFormatter(formatter)
+        return [ch]
+
+    def initlogformatter(self):
+        """Setup log formatter"""
+        options = self._logoptions
+        fmtcls = options.get('fmtcls', logging.Formatter)
+        style = options.get('style', '%')
+        msgformat = options.get('format', None)
+        datefmt = options.get('datefmt', None)
+        formatter = fmtcls(msgformat, datefmt=datefmt, style=style)
+        return formatter
+
+    def initlogging(self, **kwargs):
         """Setup logging"""
-        level = self._loglevel.value
-        logger = logging.getLogger(self._logname)
+        options = self._logoptions
+        options.update(kwargs)
+        level = options['level'].value
+        logger = self._logger.logger
         logger.setLevel(level)
 
         # Set level for asyncio logger
@@ -156,16 +180,11 @@ class BaseLoop:
                 logger.removeHandler(h)
 
         # Create formatter
-        msgformat = '%(message)s'
-        formatter = logging.Formatter(msgformat)
-
-        # Create console handler
-        ch = logging.StreamHandler()
-        ch.setLevel(level)
-        ch.setFormatter(formatter)
+        formatter = self.initlogformatter()
 
         # Put it all together
-        logger.addHandler(ch)
+        for h in self.initloghandlers(formatter):
+            logger.addHandler(h)
 
     def start(self):
         """Start the loop"""
@@ -192,8 +211,9 @@ class BaseLoop:
 
     def uncaught_exceptions(self, loop, context):
         """Handle uncaught exceptions"""
-        future = context['future']
-        self.logger.info('got exception: {}'.format(future.exception()))
+        exception = (context['future'].exception() if 'future' in context
+                     else context['exception'])
+        self.logger.error('got exception: {}', exception, exc_info=True)
         channel.shutdown.put(1)
 
     def stopsignal(self, sig, exitcode, *args):
@@ -229,12 +249,17 @@ class BaseLoop:
     @property
     def logger(self):
         """Return the logger set by this instance"""
-        return logging.getLogger(self._logname)
+        return self._logger
+
+    @property
+    def logoptions(self):
+        """Retrieve log options"""
+        return self._logoptions
 
     @property
     def loglevel(self):
         """Return the loglevel"""
-        return self._loglevel
+        return self._logoptions['level']
 
     @loglevel.setter
     def loglevel(self, newlevel):
@@ -242,8 +267,10 @@ class BaseLoop:
         if not isinstance(newlevel, LogLevel):
             msg = 'loglevel expected LogLevel, got {}'
             raise TypeError(msg.format(newlevel.__class__.__name__))
-        self._loglevel = newlevel
-        self.initlogging()
+        logoptions = self._logoptions
+        logoptions['level'] = newlevel
+        if logoptions.get('init-logging', True):
+            self.initlogging()
 
     @property
     def loop(self):

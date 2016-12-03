@@ -709,6 +709,14 @@ def test_no_listeners(testloop, testchannel):
         testloop.run_until_complete(run())
 
 
+@pytest.mark.parametrize('name', [None, 'hello'])
+def test_name(name):
+    """Retrieve the channel's name"""
+    expected = 'datachannel' if name is None else name
+    c = DataChannel(name=name)
+    assert c.name == expected
+
+
 # ============================================================================
 #
 # ============================================================================

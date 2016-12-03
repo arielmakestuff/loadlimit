@@ -13,6 +13,7 @@
 
 # Stdlib imports
 import os
+from pathlib import Path
 import sys
 
 # Third-party imports
@@ -24,6 +25,7 @@ from pytz import timezone
 import loadlimit.cli as cli
 from loadlimit.cli import main, PROGNAME
 from loadlimit.importhook import TaskImporter
+from loadlimit.util import LogLevel
 
 
 # ============================================================================
@@ -108,7 +110,8 @@ def test_main_default_args():
     llconfig = config['loadlimit']
 
     names = ['timezone', 'numusers', 'duration', 'importer',
-             'show-progressbar', 'cache', 'export', 'periods']
+             'show-progressbar', 'cache', 'export', 'periods',
+             'logging']
     assert len(llconfig) == len(names)
     for name in names:
         assert name in llconfig
@@ -122,6 +125,7 @@ def test_main_default_args():
     assert 'targetdir' not in llconfig['export']
     assert isinstance(llconfig['importer'], TaskImporter)
     assert llconfig['periods'] == 8
+    assert llconfig['logging']['loglevel'] == LogLevel.WARNING
 
 
 @pytest.mark.parametrize('val', ['fhjdsf', '42z', 'one zots'])
@@ -227,6 +231,61 @@ def test_main_export_nodir(monkeypatch):
     exportconfig = llconfig['export']
     assert exportconfig['type'] == 'csv'
     assert exportconfig['targetdir'] == os.getcwd()
+
+
+def test_main_logfile_default():
+    """Default logfile"""
+    config = {}
+    args = ['-L', '-d', '1s', 'what']
+
+    with pytest.raises(SystemExit):
+        main(arglist=args, config=config)
+
+    llconfig = config['loadlimit']
+    assert 'logging' in llconfig
+
+    expected = Path.cwd() / '{}.log'.format(cli.PROGNAME)
+    assert llconfig['logging']['logfile'] == str(expected)
+
+
+def test_main_logfile_bad_parentdir(monkeypatch):
+    """Raise error if given logfile path's parent doesn't exist"""
+
+    filename = Path('/imaginary/path/notexist')
+
+    def fake_isdir(self):
+        """fake_isdir"""
+        return False
+
+    monkeypatch.setattr(cli.Path, 'is_dir', fake_isdir)
+
+    config = {}
+    args = ['-L', '-l', str(filename), '-d', '1s', 'what']
+
+    with pytest.raises(FileNotFoundError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (str(filename.parent), )
+
+
+def test_main_logfile_isdir(monkeypatch):
+    """Raise error if given logfile is a directory"""
+
+    filename = Path('/imaginary/path/notexist')
+
+    def fake_isdir(self):
+        """fake_isdir"""
+        return True
+
+    monkeypatch.setattr(cli.Path, 'is_dir', fake_isdir)
+
+    config = {}
+    args = ['-L', '-l', str(filename), '-d', '1s', 'what']
+
+    with pytest.raises(IsADirectoryError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (str(filename), )
 
 
 # ============================================================================

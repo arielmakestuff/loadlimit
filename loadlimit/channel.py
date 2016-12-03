@@ -20,12 +20,11 @@ from contextlib import contextmanager
 from enum import Enum
 from functools import partial
 from itertools import count
-import logging
 
 # Third-party imports
 
 # Local imports
-from .util import aiter
+from .util import aiter, Logger
 
 
 # ============================================================================
@@ -148,7 +147,7 @@ class DataChannel:
     # Methods
     # --------------------
 
-    def __init__(self, *, queuecls=None, name='datachannel', logger=None):
+    def __init__(self, *, queuecls=None, name=None, logger=None):
         self._qcls = Queue if queuecls is None else queuecls
         self._tasks = defaultdict(OrderedDict)
         self._qkwargs = None
@@ -158,9 +157,9 @@ class DataChannel:
         self._availkeys = set()
         self._keygen = count()
         self._state = ChannelState.closed
-        self._name = name
-        self._logger = (logging.getLogger('loadlimit') if logger is None
-                        else logger)
+        self._name = 'datachannel' if name is None else name
+        self._logger = l = Logger(logger=logger)
+        l.msgkwargs.update(name=name)
 
     def __call__(self, corofunc=None, *, anchortype=None, keyobj=None,
                  **kwargs):
@@ -215,17 +214,21 @@ class DataChannel:
 
     def open(self, **kwargs):
         """Open the data channel"""
+        self.logger.debug('channel {name}: open')
         return self.channel.open(**kwargs)
 
     def close(self):
         """Close the channel"""
+        self.logger.debug('channel {name}: close')
         self.channel.close()
 
     def add(self, corofunc, *, anchortype=None):
         """Add a coroutine function listener"""
+        self.logger.debug('channel {name}: adding corofunc {!r}', corofunc)
         if not callable(corofunc):
-            msg = 'corofunc expected callable, got {} instead'
-            raise TypeError(msg.format(type(corofunc).__name__))
+            msg = ('corofunc expected callable, got {} instead'.
+                   format(type(corofunc).__name__))
+            raise TypeError(msg)
 
         avail = self._availkeys
         tasks = self._tasks
@@ -270,6 +273,7 @@ class DataChannel:
 
     def start(self, *, loop=None, asyncfunc=True, **kwargs):
         """Start listeners"""
+        self.logger.debug('channel {name}: start listener')
         state = self._state
         if state == ChannelState.closed:
             raise ChannelClosedError
@@ -288,6 +292,7 @@ class DataChannel:
 
     def stop(self):
         """Stop scheduling listeners"""
+        self.logger.debug('channel {name}: stop listener')
         state = self._state
         if state == ChannelState.closed:
             raise ChannelClosedError
@@ -301,6 +306,7 @@ class DataChannel:
 
     def pause(self):
         """Pause scheduling listeners"""
+        self.logger.debug('channel {name}: pause listener')
         state = self._state
         if state == ChannelState.closed:
             raise ChannelClosedError
@@ -406,6 +412,7 @@ class DataChannel:
         This will close the channel.
 
         """
+        self.logger.debug('channel {name}: shutdown')
         self._openqueue.clear()
         self._state = ChannelState.closing
         self.stop()
@@ -415,6 +422,16 @@ class DataChannel:
     # --------------------
     # Descriptors
     # --------------------
+
+    @property
+    def logger(self):
+        """Return the channel's logger"""
+        return self._logger
+
+    @property
+    def name(self):
+        """Return the channel's name"""
+        return self._name
 
     @property
     def state(self):
