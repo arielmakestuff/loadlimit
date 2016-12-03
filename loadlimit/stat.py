@@ -27,7 +27,6 @@ from sqlalchemy import create_engine
 
 # Local imports
 from .channel import AnchorType, DataChannel
-from .event import EventNotStartedError, MultiEvent, RunFirst
 from .util import aiter, Namespace, now
 
 

@@ -70,6 +70,7 @@ def test_flushtosql(num):
         """run"""
         async for i in aiter(range(num)):
             await churn(i)
+        await stat.recordperiod.join()
         await channel.shutdown.send(0)
 
     # Add to shutdown channel

@@ -194,6 +194,7 @@ async def test_aremove(testchannel, val):
     atypelist = list(AnchorType)
 
     async for i in aiter(numrange):
+        i = i  # To stop lint tool from complaining
         atype = choice(atypelist)
         testchannel(list, anchortype=atype)
 
@@ -244,8 +245,10 @@ def test_open_state(testchannel):
     assert testchannel.state == ChannelState.closed
 
 
-@pytest.mark.parametrize('state', [c for c in ChannelState if c !=
-                                   ChannelState.closed])
+@pytest.mark.parametrize('state', [
+    c for c in ChannelState if c not in
+    [ChannelState.closed, ChannelState.closing]
+])
 def test_open_alreadyopen(testchannel, state):
     """Opening an already open channel raises an error"""
 
@@ -287,12 +290,37 @@ def test_start_already_listening(testloop, testchannel):
 
 def test_start_unpause(testloop, testchannel):
     """Unpause"""
+
+    val = []
+
+    @testchannel
+    async def one(data):
+        """one"""
+        vallen = len(val)
+        if vallen == 5:
+            testchannel.pause()
+            val.append(42)
+            return
+        elif vallen == 6:
+            testchannel.start()
+        val.append(data)
+        if data == 9:
+            testchannel.stop()
+
+    async def run():
+        """run"""
+        for i in range(10):
+            asyncio.ensure_future(testchannel.send(i))
+            await asyncio.sleep(0)
+        await testchannel.join()
+
     with testchannel.open():
         testchannel.start()
-        testchannel.pause()
-        assert testchannel.state == ChannelState.paused
-        testchannel.start()
-        assert testchannel.state == ChannelState.listening
+        testloop.run_until_complete(run())
+
+    expected = list(range(10))
+    expected[5] = 42
+    assert set(val) == set(expected)
 
 
 # ============================================================================
@@ -318,12 +346,19 @@ def test_pause_not_listening(testchannel):
 # ============================================================================
 
 
-def test_datachannel_stop_already_stopped(testchannel):
-    """Raise error if stopping an already stopped channel"""
+def test_datachannel_stop_already_closed(testchannel):
+    """Raise error if stopping an already closed channel"""
     with testchannel.open():
         pass
 
     with pytest.raises(ChannelClosedError):
+        testchannel.stop()
+
+
+def test_datachannel_stop_already_stopped(testchannel):
+    """Do nothing if stopping an already stopped channel"""
+    with testchannel.open():
+        testchannel.stop()
         testchannel.stop()
 
 
@@ -333,12 +368,12 @@ def test_datachannel_stop_already_stopped(testchannel):
 
 
 def test_getitem_cleared_key(testchannel):
-    """After removing a key trying to get from the empty channel raises KeyError"""
+    """Trying to get from the empty channel raises KeyError"""
     key = testchannel.add(list)
     testchannel.remove(key)
 
     with pytest.raises(KeyError) as err:
-        testchannel[key]
+        testchannel.__getitem__(key)
 
     assert err.value.args == (key, )
 
@@ -351,7 +386,7 @@ def test_getitem_nokey(testchannel):
     testchannel.remove(key)
 
     with pytest.raises(KeyError) as err:
-        testchannel[key]
+        testchannel.__getitem__(key)
 
     assert err.value.args == (key, )
 
@@ -362,7 +397,7 @@ def test_getitem_nokey(testchannel):
 
 
 def test_anchortype_cleared_key(testchannel):
-    """After removing a key trying to get anchortype from the empty channel raises KeyError"""
+    """Trying to get anchortype from the empty channel raises KeyError"""
     key = testchannel.add(list)
     testchannel.remove(key)
 
@@ -373,7 +408,7 @@ def test_anchortype_cleared_key(testchannel):
 
 
 def test_anchortype_nokey(testchannel):
-    """Raise error if key not found in channel with a few added callables when calling anchortype"""
+    """Raise error if key not found in channel"""
     key = testchannel.add(list)
     for i in range(5):
         testchannel.add(list)
@@ -456,7 +491,6 @@ def test_datachannel_async(testloop, testchannel, asend):
 
     val = []
     dataval = 42
-    expected = [(i, dataval) for i in [1, 2, 3, 4, 6, 5]]
     stop = False
 
     @testchannel(anchortype=AnchorType.first)
@@ -515,9 +549,9 @@ def test_datachannel_async(testloop, testchannel, asend):
     middle = set((i, dataval) for i in [3, 4])
     last = set((i, dataval) for i in [5, 6])
 
-    assert set(val[0:2]) ==  first
-    assert set(val[2:4]) ==  middle
-    assert set(val[4:6]) ==  last
+    assert set(val[0:2]) == first
+    assert set(val[2:4]) == middle
+    assert set(val[4:6]) == last
 
 
 def test_datachannel_pause(testloop, testchannel):
@@ -551,35 +585,27 @@ def test_datachannel_pause(testloop, testchannel):
 
 def test_datachannel_stop(testloop, testchannel):
     """Stop channel"""
-
     val = []
 
     @testchannel
     async def one(data):
         """one"""
         val.append((1, data))
-        if testchannel.state != ChannelState.listening:
-            with pytest.raises(NotListeningError):
-                testchannel.stop()
-            return
-        else:
-            testchannel.stop()
-        assert testchannel.state == ChannelState.open
-        val.append('stop')
+
+    async def stoppedsend(data):
+        """stoppedsend"""
+        await testchannel.send(data)
 
     async def run():
         """run"""
-        async for i in aiter(range(10)):
+        for i in range(10):
             await testchannel.send(i)
-            await asyncio.sleep(0)
+        testchannel.stop()
+        await testchannel.join()
 
     with testchannel.open():
         testchannel.start()
         testloop.run_until_complete(run())
-        assert testchannel.state == ChannelState.open
-
-    assert val
-    assert val[:2] == [(1, 0), 'stop']
 
 
 def test_datachannel_close(testloop, testchannel):
@@ -615,7 +641,6 @@ def test_datachannel_close(testloop, testchannel):
     assert val == [(1, 0), 'close']
 
 
-#  @pytest.mark.skipif(True, reason='dev')
 def test_datachannel_send_wait(testloop, testchannel):
     """Send blocks when channel is closed until it is opened"""
 
@@ -624,31 +649,45 @@ def test_datachannel_send_wait(testloop, testchannel):
     @testchannel
     async def one(data):
         """one"""
-        if testchannel.state == ChannelState.closed:
-            testchannel.open()
-            testchannel.start()
-            await asyncio.sleep(1)
-        v = data
-        val.append((1, v))
-        if v == 0:
-            testchannel.close()
-            assert testchannel.state == ChannelState.closed
-            val.append('stop')
+        if len(val) == 5:
+            testchannel.stop()
+            return
+        val.append(data)
 
     async def run():
         """run"""
         async for i in aiter(range(10)):
-            await testchannel.send(i)
+            asyncio.ensure_future(testchannel.send(i))
             await asyncio.sleep(0)
         await testchannel.join()
 
     with testchannel.open():
         testchannel.start()
         testloop.run_until_complete(run())
-        assert testchannel.state == ChannelState.listening
 
-    assert val
-    assert val[:2] == [(1, 0), 'stop']
+    assert val == list(range(5))
+
+
+def test_datachannel_send_wait_notopened(testloop, testchannel):
+    """Send blocks when channel has never been opened"""
+
+    val = []
+
+    @testchannel
+    async def one(data):
+        """one"""
+        val.append(data)
+
+    async def run():
+        """run"""
+        async for i in aiter(range(10)):
+            asyncio.ensure_future(testchannel.send(i))
+            await asyncio.sleep(0)
+        await testchannel.join()
+
+    testloop.run_until_complete(run())
+
+    assert not val
 
 
 # ============================================================================

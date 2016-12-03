@@ -111,6 +111,7 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         async for i in aiter(range(numiter)):
             await churn(i)
             await churn2(i)
+        await stat.recordperiod.join()
         await channel.shutdown.send(0)
 
     statsetup = StatSetup(config, state)

@@ -12,7 +12,8 @@
 
 
 # Stdlib imports
-from asyncio import ensure_future, gather, Queue, sleep
+import asyncio
+from asyncio import ensure_future, Event, gather, Queue, sleep
 from collections import defaultdict, OrderedDict
 from collections.abc import MutableMapping
 from contextlib import contextmanager
@@ -32,8 +33,9 @@ from .util import aiter
 # ============================================================================
 
 
-ChannelState = Enum('ChannelState', ['closed', 'open', 'listening', 'paused'])
-ChannelCommand = Enum('ChannelCommand', ['stop', 'pause'])
+ChannelState = Enum('ChannelState', ['closed', 'open', 'listening', 'paused',
+                                     'closing'])
+ChannelCommand = Enum('ChannelCommand', ['start', 'stop', 'pause'])
 AnchorType = Enum('AnchorType', ['none', 'first', 'last'])
 
 
@@ -93,12 +95,14 @@ class ChannelContext:
     def __exit__(self, errtype, err, errtb):
         self.close()
 
-    def open(self, **kwargs):
+    def open(self, *, loop=None, **kwargs):
         """Open the data channel
 
         ChannelOpenError is raised if the channel is already open.
 
         """
+        loop = asyncio.get_event_loop() if loop is None else loop
+        kwargs['loop'] = loop
         parent = self._parent
         openstates = (ChannelState.open, ChannelState.listening,
                       ChannelState.paused)
@@ -106,6 +110,14 @@ class ChannelContext:
             raise ChannelOpenError
         parent._qkwargs = kwargs
         parent._queue = parent._qcls(**kwargs)
+
+        # Setup openqueue event
+        oq = parent._openqueue
+        if oq is None:
+            parent._openqueue = oq = Event(loop=loop)
+        oq.set()
+
+        parent._command = Queue(maxsize=1, loop=loop)
         parent._state = ChannelState.open
         return self
 
@@ -115,9 +127,11 @@ class ChannelContext:
         state = parent._state
         if state == ChannelState.closed:
             return
-        elif state != ChannelState.open:
+        elif state not in(ChannelState.open, ChannelState.closing):
             parent.stop()
+        parent._openqueue.clear()
         parent._queue = None
+        parent._command = None
         parent._qkwargs = None
         parent._state = ChannelState.closed
 
@@ -139,6 +153,8 @@ class DataChannel:
         self._tasks = defaultdict(OrderedDict)
         self._qkwargs = None
         self._queue = None
+        self._openqueue = None
+        self._command = None
         self._availkeys = set()
         self._keygen = count()
         self._state = ChannelState.closed
@@ -265,6 +281,10 @@ class DataChannel:
         if oldstate == ChannelState.open:
             coro = self._listen(kwargs, asyncfunc=asyncfunc, loop=loop)
             ensure_future(coro, loop=loop)
+        else:
+            loop = asyncio.get_event_loop()
+            loop.call_soon_threadsafe(self._command.put_nowait,
+                                      ChannelCommand.start)
 
     def stop(self):
         """Stop scheduling listeners"""
@@ -272,9 +292,12 @@ class DataChannel:
         if state == ChannelState.closed:
             raise ChannelClosedError
         elif state == ChannelState.open:
-            raise NotListeningError
-        self._state = ChannelState.open
-        self._queue.put_nowait(ChannelCommand.stop)
+            return
+        elif state != ChannelState.closing:
+            self._state = ChannelState.open
+        loop = asyncio.get_event_loop()
+        loop.call_soon_threadsafe(self._command.put_nowait,
+                                  ChannelCommand.stop)
 
     def pause(self):
         """Pause scheduling listeners"""
@@ -284,28 +307,39 @@ class DataChannel:
         elif state == ChannelState.open:
             raise NotListeningError
         self._state = ChannelState.paused
-        self._queue.put_nowait(ChannelCommand.pause)
+        loop = asyncio.get_event_loop()
+        loop.call_soon_threadsafe(self._command.put_nowait,
+                                  ChannelCommand.pause)
 
     async def _listen(self, kwargs, *, asyncfunc=True, loop=None):
         """Listen for data on the queue"""
         queue = self._queue
+        command = self._command
         task_done = queue.task_done
         tasks = self._tasks
         runfunc = self._aruntasks if asyncfunc else self._runtasks
         data = None
+        cmd = None
+        checkcmd = False
         while True:
-            state = self._state
-            if data == ChannelCommand.stop:
-                break
-            elif state == ChannelState.paused and data == ChannelCommand.pause:
-                await sleep(0)
-                continue
-            data = await queue.get()
-            if not isinstance(data, ChannelCommand):
+            # Check for commands
+            if checkcmd or not command.empty():
+                cmd = await command.get()
+                checkcmd = False
+            if cmd is not None:
+                command.task_done()
+                if cmd == ChannelCommand.stop:
+                    if queue.qsize() == 0:
+                        break
+                elif cmd == ChannelCommand.pause:
+                    checkcmd = True
+                    await sleep(0)
+                    continue
+                cmd = None
+            if not queue.empty():
+                data = await queue.get()
                 ensure_future(runfunc(data, tasks, task_done, kwargs,
                                       loop=loop), loop=loop)
-            else:
-                task_done()
             await sleep(0)
 
     async def _runtasks(self, data, tasks, task_done, kwargs, loop=None):
@@ -341,9 +375,11 @@ class DataChannel:
 
         """
         while True:
-            if self._state == ChannelState.closed:
+            openqueue = self._openqueue
+            if openqueue is None:
                 await sleep(0)
                 continue
+            await openqueue.wait()
             break
         await self._queue.put(data)
 
@@ -359,7 +395,10 @@ class DataChannel:
 
     async def join(self):
         """Block until work queue is done"""
-        await self._queue.join()
+        queue = self._queue
+        if queue is None:
+            return
+        await queue.join()
 
     async def shutdown(self, *args, **kwargs):
         """Shutdown and wait for listener to be cleared from the event loop
@@ -367,6 +406,8 @@ class DataChannel:
         This will close the channel.
 
         """
+        self._openqueue.clear()
+        self._state = ChannelState.closing
         self.stop()
         await self.join()
         self.close()
