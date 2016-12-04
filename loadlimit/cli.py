@@ -114,7 +114,7 @@ class Printer:
         if printfunc is print:
             printfunc(*value, sep=sep, end=end, file=file)
         else:
-            msg = '{}{}'.format(sep.join(value), end)
+            msg = '{}{}'.format(sep.join(str(v) for v in value), end)
             printfunc(msg)
 
     @property

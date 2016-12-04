@@ -50,6 +50,21 @@ def test_noncallable(func):
     assert err.value.args == (expected, )
 
 
+@pytest.mark.parametrize('val', [42, 4.2])
+def test_nonprint_nonstrvalue(val):
+    """Accept any non-str values for non-print functions"""
+    msg = None
+
+    def myprint(value):
+        nonlocal msg
+        msg = value
+
+    p = Printer(myprint)
+    p(val)
+
+    assert msg == '{}\n'.format(val)
+
+
 # ============================================================================
 #
 # ============================================================================
