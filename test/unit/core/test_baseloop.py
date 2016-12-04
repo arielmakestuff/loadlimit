@@ -214,7 +214,7 @@ def test_stoperror(caplog):
     expected = [
         'loop started',
         'exception me!',
-        'got exception: what',
+        'exception (Exception): what',
         'shutdown',
         'stopping loop',
         'cancelling tasks',
@@ -226,7 +226,22 @@ def test_stoperror(caplog):
     # if sys.platform == 'win32':
     #     expected[-1:-1] = ['cancelling tasks', 'tasks cancelled']
 
-    result = [r.message for r in caplog.records]
+    result = [r.message for r in caplog.records if r.name != 'asyncio']
+    assert result == expected
+
+
+def test_uncaught_exceptions(caplog):
+    """If no future or exception passed, print only the message"""
+    context = dict(message='what')
+    expected = [
+        'exception: what',
+    ]
+
+    main = BaseLoop()
+    channel.shutdown.open()
+    main.uncaught_exceptions(None, context)
+
+    result = [r.message for r in caplog.records if r.name != 'asyncio']
     assert result == expected
 
 
@@ -252,7 +267,7 @@ def test_run_stoperror(caplog):
     expected = [
         'loop started',
         'exception me!',
-        'got exception: what',
+        'exception (Exception): what',
         'shutdown',
         'stopping loop',
         'cancelling tasks',
