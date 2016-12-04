@@ -591,12 +591,11 @@ class StatSetup:
                 total.calculate(name, df)
                 timeseries.calculate(name, df)
 
-        self._results = (total.vals.results, ) + timeseries.vals.results
-
         # Don't export
         exportconfig = self._config['loadlimit']['export']
         export_type = exportconfig['type']
         if export_type is None:
+            self._results = (total.vals.results, ) + timeseries.vals.results
             return
 
         exportdir = exportconfig['targetdir']
@@ -604,6 +603,9 @@ class StatSetup:
         # Export values
         for calcobj in [total, timeseries]:
             calcobj.export(export_type, exportdir)
+
+        # Capture any changes
+        self._results = (total.vals.results, ) + timeseries.vals.results
 
     def startevent(self):
         """Start events"""

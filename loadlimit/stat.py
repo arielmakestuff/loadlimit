@@ -347,9 +347,11 @@ class Total(Result):
         totseries = [df['Total'].sum(), delta.median(),
                      delta.mean(), df['Min'].min(), df['Max'].max(),
                      df['Rate'].sum()]
-        totseries = {'Totals': Series(totseries, index=vals.index)}
-        totseries = DataFrame(totseries, columns=vals.index)
-        df.append(totseries)
+        result = [totseries[0]] + totseries[3:]
+        result[1:1] = [v.total_seconds() * 1000 for v in totseries[1:3]]
+        result = DataFrame([Series(result, index=vals.index)],
+                           index=['Totals'])
+        vals.results = df = df.append(result)
         self.exportdf(df, 'results', export_type, exportdir)
 
 
@@ -484,8 +486,8 @@ class SQLTotal(SQLResult, Total):
         r = [numiter]
         for val in [df.median(), df.mean(), df.min(), df.max()]:
             r.append(val.total_seconds() * 1000)
-        rval = 0 if vals.duration == 0 else (numiter / vals.duration)
-        r.append(rval)
+        duration = df.sum().total_seconds()
+        r.append(0 if duration == 0 else numiter / duration)
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
