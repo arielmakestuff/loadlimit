@@ -65,7 +65,7 @@ def test_statsetup_context(monkeypatch):
         periods=8
     )
     config = dict(loadlimit=llconfig)
-    state = Namespace()
+    state = Namespace(write=cli.Printer())
 
     with StatSetup(config, state) as statsetup:
         pass
@@ -92,7 +92,7 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         export=dict(type=xv, targetdir=tempdir)
     )
     config = dict(loadlimit=llconfig)
-    state = Namespace()
+    state = Namespace(write=cli.Printer())
 
     # Create coro to time
     @timecoro(name='churn')

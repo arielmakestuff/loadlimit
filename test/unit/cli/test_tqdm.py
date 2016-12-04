@@ -38,7 +38,7 @@ from loadlimit.util import Namespace
 def pbar():
     """Create a tqdm progress bar"""
     config = dict(loadlimit={'show-progressbar': True})
-    state = None
+    state = Namespace(write=cli.Printer())
     with cli.tqdm_context(config, state=state) as pbar:
         yield pbar
 

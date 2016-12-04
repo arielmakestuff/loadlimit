@@ -95,6 +95,42 @@ class LoadLimitFormatter(Formatter):
         return s
 
 
+class Printer:
+    """Helper class for printing to stdout"""
+
+    def __init__(self, printfunc=None):
+        self._printfunc = None
+        self.printfunc = print if printfunc is None else printfunc
+
+    def __call__(self, *value, sep=' ', end='\n', file=sys.stdout,
+                 flush=False, startnewline=False):
+        """Print values"""
+        printfunc = self._printfunc
+        if flush:
+            file.flush()
+        if startnewline:
+            self.__call__('\n', flush=True)
+        if printfunc is print:
+            printfunc(*value, sep=sep, end=end, file=file)
+        else:
+            msg = '{}{}'.format(sep.join(value), end)
+            printfunc(msg)
+
+    @property
+    def printfunc(self):
+        """Return current printfunc"""
+        return self._printfunc
+
+    @printfunc.setter
+    def printfunc(self, func):
+        """Set new printfunc"""
+        if not callable(func):
+            msg = ('printfunc expected callable, got value of type {}'.
+                   format(type(func).__name__))
+            raise TypeError(msg)
+        self._printfunc = func
+
+
 # ============================================================================
 # tqdm integration
 # ============================================================================
@@ -134,9 +170,11 @@ def tqdm_context(config, state, *, name=None, sched=False, **kwargs):
 
     # Setup tqdm
     with tqdm(**kwargs) as pbar:
+        oldprinter = state.write.printfunc
         if name is not None:
             state.progressbar[name] = pbar
             state.tqdm_progress[name] = 0
+            state.write.printfunc = tqdm.write
             if sched:
                 asyncio.ensure_future(update_tqdm(config, state, name))
                 channel.shutdown(partial(stop_tqdm, state=state, name=name))
@@ -144,6 +182,7 @@ def tqdm_context(config, state, *, name=None, sched=False, **kwargs):
             yield pbar
         finally:
             if name is not None:
+                state.write.printfunc = oldprinter
                 state.progressbar[name] = None
 
 
@@ -494,6 +533,7 @@ class StatSetup:
         return self
 
     def __exit__(self, errtype, err, errtb):
+        write = self._state.write
         total, timeseries = self._calcobj
         statsdict = self._statsdict
         with ExitStack() as stack:
@@ -503,7 +543,7 @@ class StatSetup:
             if statsdict.start_date is None:
                 return
 
-            print('Analyzing results', end='')
+            write('Analyzing results', end='', flush=True, startnewline=True)
 
             # Enter results contexts
             for r in [total, timeseries]:
@@ -513,9 +553,9 @@ class StatSetup:
             for name, df in total:
                 total.calculate(name, df)
                 timeseries.calculate(name, df)
-                print('.', end='')
+                write('.', end='')
 
-            print('OK')
+            write('OK')
 
         self._results = (total.vals.results, ) + timeseries.vals.results
 
@@ -525,14 +565,14 @@ class StatSetup:
         if export_type is None:
             return
 
-        print('Exporting', end='')
+        write('Exporting', end='', flush=True)
         exportdir = exportconfig['targetdir']
 
         # Export values
         for calcobj in [total, timeseries]:
             calcobj.export(export_type, exportdir)
             print('.', end='')
-        print('OK')
+        write('OK')
 
     def startevent(self):
         """Start events"""
@@ -561,6 +601,7 @@ def runloop(config, args, state):
     state.reschedule = True
     state.progressbar = {}
     state.tqdm_progress = {}
+    state.write = Printer()
 
     statsetup = StatSetup(config, state)
 
@@ -611,7 +652,7 @@ def runloop(config, args, state):
                           desc='Stopping Clients', total=numusers):
             main.shutdown(config, state)
 
-    print('exit')
+    state.write('exit')
     return main.exitcode
 
 
