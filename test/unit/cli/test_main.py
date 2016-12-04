@@ -42,11 +42,11 @@ def empty_argv(monkeypatch):
 @pytest.fixture
 def norunloop(monkeypatch):
     """Mock runloop() with func that does nothing"""
-    def fake_runloop(config, args, state):
+    def fake_runloop(self, config, args, state):
         """fake_runloop"""
         cli.process_options(config, args)
 
-    monkeypatch.setattr(cli, 'runloop', fake_runloop)
+    monkeypatch.setattr(cli.RunLoop, '__call__', fake_runloop)
 
 
 pytestmark = pytest.mark.usefixtures('empty_argv', 'norunloop')

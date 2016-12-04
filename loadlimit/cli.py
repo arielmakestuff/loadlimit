@@ -26,6 +26,7 @@ from os.path import abspath, isdir, join as pathjoin
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+import time
 
 # Third-party imports
 from pandas import Timedelta
@@ -482,7 +483,7 @@ def defaultoptions(parser):
         help='Increase verbosity'
     )
 
-    parser.set_defaults(_main=runloop)
+    parser.set_defaults(_main=RunLoop())
 
 
 def create():
@@ -587,73 +588,117 @@ class StatSetup:
         return self._results
 
 
-def runloop(config, args, state):
-    """Process cli options and start the loop"""
-    llconfig = config['loadlimit']
+class RunLoop:
+    """Setup, run, and teardown loop"""
 
-    # Process cli options
-    process_options(config, args)
+    def __init__(self):
+        self._main = None
+        self._statsetup = None
 
-    # Set up importhook
-    sys.meta_path.append(llconfig['importer'])
+    def __call__(self, config, args, state):
+        """Process cli options and start the loop"""
+        self.init(config, args, state)
+        stackorder = ['tempdir', 'statsetup', 'mainloop', 'mainloop_logging',
+                      'initclients', 'setuptqdm', 'startmain',
+                      'shutdown_clients']
 
-    # Create state namespace
-    state.reschedule = True
-    state.progressbar = {}
-    state.tqdm_progress = {}
-    state.write = Printer()
+        with ExitStack() as stack:
+            pbar = stack.enter_context(
+                tqdm_context(config, state, name=PROGNAME, desc='Progress',
+                             total=len(stackorder)))
+            for name in stackorder:
+                func = getattr(self, name)
+                if pbar is None:
+                    state.write('{}: '.format(func.__doc__), end='')
+                    state.write('', end='', flush=True)
+                    time.sleep(0.1)
+                func(stack, config, state)
+                if pbar is None:
+                    state.write('OK')
+                else:
+                    time.sleep(0.1)
+                    pbar.update(1)
 
-    statsetup = StatSetup(config, state)
+        ret = self._main.exitcode
+        self._main = None
+        self._statsetup = None
+        state.write('exit')
+        return ret
 
-    # Run the loop
-    with ExitStack() as stack:
-        # Setup a temporary directory
-        llconfig['tempdir'] = abspath(
+    def init(self, config, args, state):
+        """Initial setup"""
+        llconfig = config['loadlimit']
+
+        # Process cli options
+        process_options(config, args)
+
+        # Set up importhook
+        sys.meta_path.append(llconfig['importer'])
+
+        # Create state namespace
+        state.reschedule = True
+        state.progressbar = {}
+        state.tqdm_progress = {}
+        state.write = Printer()
+
+        self._statsetup = StatSetup(config, state)
+
+    def tempdir(self, stack, config, state):
+        """Setup temporary directory"""
+        config['loadlimit']['tempdir'] = abspath(
             stack.enter_context(TemporaryDirectory()))
 
-        # Setup stats recording
-        stack.enter_context(statsetup)
+    def statsetup(self, stack, config, state):
+        """Setup stats recording"""
+        stack.enter_context(self._statsetup)
 
-        # Enter main loop
-        loglevel = llconfig['logging']['loglevel']
-        main = stack.enter_context(MainLoop(loglevel=loglevel,
-                                            clientcls=TQDMClient))
+    def mainloop(self, stack, config, state):
+        """Create main loop"""
+        loglevel = config['loadlimit']['logging']['loglevel']
+        self._main = stack.enter_context(MainLoop(loglevel=loglevel,
+                                                  clientcls=TQDMClient))
 
-        # Setup main loop logging
+    def mainloop_logging(self, stack, config, state):
+        """Setup main loop logging"""
+        llconfig = config['loadlimit']
         logfile = llconfig.get('logging', {}).get('logfile', None)
+        main = self._main
         main.initlogging(datefmt='%Y-%m-%d %H:%M:%S.%f',
                          style='{',
                          format='{asctime} {levelname} {name}: {message}',
                          fmtcls=LoadLimitFormatter, tz=llconfig['timezone'],
                          logfile=logfile)
 
-        # Create and initialize clients
-        numusers = llconfig['numusers']
+    def initclients(self, stack, config, state):
+        """Create and initialize clients"""
+        numusers = config['loadlimit']['numusers']
         with tqdm_context(config, state, name='init', desc='Ramp-up',
                           total=numusers):
-            main.init(config, state)
+            self._main.init(config, state)
 
-        # Re-enter tqdm context
-        duration = int(llconfig['duration'].total_seconds())
+    def setuptqdm(self, stack, config, state):
+        """Setup tqdm progress bars"""
+        duration = int(config['loadlimit']['duration'].total_seconds())
         stack.enter_context(tqdm_context(config, state, name='runtime',
                                          total=duration, desc='Run time',
                                          sched=True))
         stack.enter_context(tqdm_context(config, state, name='iteration',
                                          desc='Iterations'))
 
+    def startmain(self, stack, config, state):
+        """Start the main loop"""
         # Start events
-        statsetup.startevent()
+        self._statsetup.startevent()
 
         # Start the loop
-        main.start()
+        self._main.start()
 
-        # Tell clients to shutdown
+    def shutdown_clients(self, stack, config, state):
+        """Tell clients to shutdown"""
+        numusers = config['loadlimit']['numusers']
         with tqdm_context(config, state, name='shutdown',
                           desc='Stopping Clients', total=numusers):
-            main.shutdown(config, state)
-
-    state.write('exit')
-    return main.exitcode
+            self._main.shutdown(config, state)
 
 
 # ============================================================================
