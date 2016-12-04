@@ -214,7 +214,7 @@ class BaseLoop:
         exception = (context['future'].exception() if 'future' in context
                      else context.get('exception', None))
         if exception is None:
-            self.logger.error('got exception: {}', context['message'])
+            self.logger.error('exception: {}', context['message'])
         else:
             self.logger.error('exception ({}): {}', type(exception).__name__,
                               exception)
