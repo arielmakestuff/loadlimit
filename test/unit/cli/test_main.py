@@ -111,7 +111,7 @@ def test_main_default_args():
 
     names = ['timezone', 'numusers', 'duration', 'importer',
              'show-progressbar', 'cache', 'export', 'periods',
-             'logging']
+             'logging', 'qmaxsize']
     assert len(llconfig) == len(names)
     for name in names:
         assert name in llconfig
@@ -126,6 +126,7 @@ def test_main_default_args():
     assert isinstance(llconfig['importer'], TaskImporter)
     assert llconfig['periods'] == 8
     assert llconfig['logging']['loglevel'] == LogLevel.WARNING
+    assert llconfig['qmaxsize'] == 1000
 
 
 @pytest.mark.parametrize('val', ['fhjdsf', '42z', 'one zots'])

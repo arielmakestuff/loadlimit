@@ -132,6 +132,9 @@ class Printer:
         self._printfunc = func
 
 
+cleanup = channel.DataChannel(name='cleanup')
+
+
 # ============================================================================
 # tqdm integration
 # ============================================================================
@@ -159,6 +162,30 @@ async def stop_tqdm(exitcode, *, manager=None, state=None, name=None):
     if pbar.total is not None and progress < pbar.total:
         pbar.update(pbar.total - progress)
         state.tqdm_progress[name] = pbar.total
+
+
+class TQDMCleanup:
+    """Update cleanup progress bar"""
+
+    def __init__(self, config, state):
+        self._prev = None
+        self._state = state
+
+    async def __call__(self, qsize):
+        state = self._state
+        pbarkey = 'cleanup'
+        pbar = state.progressbar.get(pbarkey, None)
+        if pbar is None:
+            return
+        prev = self._prev
+        if prev is None:
+            self._prev = qsize
+            pbar.total = qsize
+            return
+        update = prev - qsize
+        self._prev = qsize
+        pbar.update(update)
+        state.tqdm_progress[pbarkey] += update
 
 
 @contextmanager
@@ -329,7 +356,8 @@ class ProcessOptions:
     def __call__(self, config, args):
         llconfig = config['loadlimit']
         order = ['timezone', 'numusers', 'duration', 'taskimporter', 'tqdm',
-                 'cache', 'export', 'periods', 'logging', 'verbose']
+                 'cache', 'export', 'periods', 'logging', 'verbose',
+                 'qmaxsize']
         for name in order:
             getattr(self, name)(llconfig, args)
 
@@ -402,6 +430,10 @@ class ProcessOptions:
         logsection = config.setdefault('logging', {})
         loglevels = {l.value: l for l in LogLevel}
         logsection['loglevel'] = loglevels[verbosity]
+
+    def qmaxsize(self, config, args):
+        """Setup verbosity config"""
+        config['qmaxsize'] = args.qmaxsize
 
 
 process_options = ProcessOptions()
@@ -483,6 +515,12 @@ def defaultoptions(parser):
         help='Increase verbosity'
     )
 
+    # Set maximum number of pending data
+    parser.add_argument(
+        '--pending-size', dest='qmaxsize', default=1000, type=int,
+        help='Number of datapoints waiting to be worked on. Default: 1000'
+    )
+
     parser.set_defaults(_main=RunLoop())
 
 
@@ -534,7 +572,7 @@ class StatSetup:
         return self
 
     def __exit__(self, errtype, err, errtb):
-        write = self._state.write
+        # write = self._state.write
         total, timeseries = self._calcobj
         statsdict = self._statsdict
         with ExitStack() as stack:
@@ -544,8 +582,6 @@ class StatSetup:
             if statsdict.start_date is None:
                 return
 
-            write('Analyzing results', end='', flush=True, startnewline=True)
-
             # Enter results contexts
             for r in [total, timeseries]:
                 stack.enter_context(r)
@@ -554,9 +590,6 @@ class StatSetup:
             for name, df in total:
                 total.calculate(name, df)
                 timeseries.calculate(name, df)
-                write('.', end='')
-
-            write('OK')
 
         self._results = (total.vals.results, ) + timeseries.vals.results
 
@@ -566,20 +599,28 @@ class StatSetup:
         if export_type is None:
             return
 
-        write('Exporting', end='', flush=True)
         exportdir = exportconfig['targetdir']
 
         # Export values
         for calcobj in [total, timeseries]:
             calcobj.export(export_type, exportdir)
-            print('.', end='')
-        write('OK')
 
     def startevent(self):
         """Start events"""
+        qmaxsize = self._config['loadlimit']['qmaxsize']
         engine = self._state.sqlengine
+
+        # Assign shutdown tasks
         channel.shutdown(stat.recordperiod.shutdown)
-        stat.recordperiod.open()
+        channel.shutdown(cleanup.shutdown)
+
+        # Start cleanup channel
+        cleanup.add(TQDMCleanup(self._config, self._state))
+        cleanup.open()
+        cleanup.start()
+
+        # Start recordperiod channel
+        stat.recordperiod.open(maxsize=qmaxsize, cleanup=cleanup)
         stat.recordperiod.start(statsdict=self._statsdict, sqlengine=engine)
 
     @property
@@ -622,7 +663,7 @@ class RunLoop:
         ret = self._main.exitcode
         self._main = None
         self._statsetup = None
-        state.write('exit')
+        state.write('\n\n', startnewline=True)
         return ret
 
     def init(self, config, args, state):
@@ -684,6 +725,8 @@ class RunLoop:
                                          sched=True))
         stack.enter_context(tqdm_context(config, state, name='iteration',
                                          desc='Iterations'))
+        stack.enter_context(tqdm_context(config, state, name='cleanup',
+                                         desc='Cleanup'))
 
     def startmain(self, stack, config, state):
         """Start the main loop"""

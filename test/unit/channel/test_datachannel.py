@@ -14,6 +14,7 @@
 # Stdlib imports
 import asyncio
 from collections.abc import MutableMapping
+from contextlib import ExitStack
 from functools import partial
 from random import choice
 
@@ -715,6 +716,49 @@ def test_name(name):
     expected = 'datachannel' if name is None else name
     c = DataChannel(name=name)
     assert c.name == expected
+
+
+# ============================================================================
+# Cleanup channel
+# ============================================================================
+
+
+@pytest.mark.parametrize('val', [42, 4.2, '42', [42]])
+def test_cleanup_notchannel(val, testchannel):
+    """Raise error if cleanup arg given non-DataChannel object"""
+    expected = ('cleanup expected DataChannel object, got {} instead'.
+                format(type(val).__name__))
+    with pytest.raises(TypeError) as err:
+        testchannel.open(cleanup=val)
+
+    assert err.value.args == (expected, )
+
+
+def test_cleanup_send_qsize(testloop, testchannel):
+    """Send qsize into cleanup channel"""
+
+    val = []
+    expected = list(reversed(range(10)))
+    cleanup = DataChannel()
+
+    @cleanup
+    async def getqsize(qsize):
+        val.append(qsize)
+
+    async def run():
+        for i in range(1000):
+            await testchannel.send(i)
+        await testchannel.shutdown()
+
+    with ExitStack() as stack:
+        stack.enter_context(cleanup.open())
+        stack.enter_context(testchannel.open(maxsize=10, cleanup=cleanup))
+
+        cleanup.start()
+        testchannel.start()
+        testloop.run_until_complete(run())
+
+    assert val == expected
 
 
 # ============================================================================

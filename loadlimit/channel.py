@@ -94,7 +94,7 @@ class ChannelContext:
     def __exit__(self, errtype, err, errtb):
         self.close()
 
-    def open(self, *, loop=None, **kwargs):
+    def open(self, *, loop=None, cleanup=None, **kwargs):
         """Open the data channel
 
         ChannelOpenError is raised if the channel is already open.
@@ -109,6 +109,13 @@ class ChannelContext:
             raise ChannelOpenError
         parent._qkwargs = kwargs
         parent._queue = parent._qcls(**kwargs)
+
+        # Setup cleanup notification channel
+        if cleanup is not None and not isinstance(cleanup, DataChannel):
+            msg = ('cleanup expected DataChannel object, got {} instead'.
+                   format(type(cleanup).__name__))
+            raise TypeError(msg)
+        parent._cleanup = cleanup
 
         # Setup openqueue event
         oq = parent._openqueue
@@ -129,6 +136,7 @@ class ChannelContext:
         elif state not in(ChannelState.open, ChannelState.closing):
             parent.stop()
         parent._openqueue.clear()
+        parent._cleanup = None
         parent._queue = None
         parent._command = None
         parent._qkwargs = None
@@ -157,6 +165,7 @@ class DataChannel:
         self._availkeys = set()
         self._keygen = count()
         self._state = ChannelState.closed
+        self._cleanup = None
         self._name = 'datachannel' if name is None else name
         self._logger = l = Logger(logger=logger)
         l.msgkwargs.update(name=name)
@@ -327,6 +336,7 @@ class DataChannel:
         data = None
         cmd = None
         checkcmd = False
+        cleanup = None
         while True:
             # Check for commands
             if checkcmd or not command.empty():
@@ -337,6 +347,12 @@ class DataChannel:
                 if cmd == ChannelCommand.stop:
                     if queue.qsize() == 0:
                         break
+
+                    # Setup cleanup channel
+                    cleanup = self._cleanup
+                    if (cleanup is not None and
+                            cleanup.state == ChannelState.listening):
+                        await cleanup.send(queue.qsize())
                 elif cmd == ChannelCommand.pause:
                     checkcmd = True
                     await sleep(0)
@@ -346,6 +362,11 @@ class DataChannel:
                 data = await queue.get()
                 ensure_future(runfunc(data, tasks, task_done, kwargs,
                                       loop=loop), loop=loop)
+
+                # Send current qsize to cleanup channel
+                if (cleanup is not None and
+                        cleanup.state == ChannelState.listening):
+                    await cleanup.send(queue.qsize())
             await sleep(0)
 
     async def _runtasks(self, data, tasks, task_done, kwargs, loop=None):

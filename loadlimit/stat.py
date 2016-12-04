@@ -15,6 +15,7 @@ from asyncio import Lock
 from hashlib import sha1
 from collections import defaultdict, namedtuple
 from functools import partial, wraps
+from itertools import count
 from pathlib import Path
 from time import mktime
 
@@ -55,6 +56,8 @@ class Period(defaultdict):
         super().__init__(list)
         self._lock = Lock() if lock is None else lock
         self.numdata = 0
+        self.counter = c = count()
+        self.totaldata = next(c)
         self.start_date = None
         self.end_date = None
 
@@ -164,6 +167,7 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
         slist = statsdict[name]
         slist.append(s)
         statsdict.numdata = statsdict.numdata + 1
+        statsdict.totaldata = next(statsdict.counter)
 
 
 async def flushtosql(data, *, statsdict=None, sqlengine=None, flushlimit=50000,

@@ -22,7 +22,7 @@ import pytest
 
 # Local imports
 import loadlimit.cli as cli
-from loadlimit.cli import main
+from loadlimit.cli import main, TQDMCleanup
 import loadlimit.core as core
 import loadlimit.importhook
 from loadlimit.importhook import mkmodule
@@ -207,6 +207,59 @@ def test_tqdm_nopbar(testloop):
     client = cli.TQDMClient(Task)
     f = asyncio.gather(client(state))
     testloop.run_until_complete(f)
+
+
+# ============================================================================
+# Test TQDMCleanup
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_cleanup_nopbar():
+    """Do nothing if no tqdm pbar has been created"""
+    state = Namespace(progressbar={})
+    cleanup = TQDMCleanup(None, state)
+    await cleanup(42)
+    assert cleanup._prev is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_first_qsize():
+    """Set pbar total to the very first qsize value given"""
+    pbar = Namespace(update=lambda x: None)
+    state = Namespace(progressbar=dict(cleanup=pbar),
+                      tqdm_progress=dict(cleanup=0))
+    cleanup = TQDMCleanup(None, state)
+
+    assert not hasattr(pbar, 'total')
+
+    await cleanup(42)
+    await cleanup(10)
+
+    assert pbar.total == 42
+
+
+@pytest.mark.asyncio
+async def test_cleanup_update_pbar():
+    """Update pbar and progress"""
+
+    store = []
+    expected = [1] * 9
+
+    def update(val):
+        store.append(val)
+
+    pbar = Namespace(update=update)
+    state = Namespace(progressbar=dict(cleanup=pbar),
+                      tqdm_progress=dict(cleanup=0))
+    cleanup = TQDMCleanup(None, state)
+
+    for i in reversed(range(10)):
+        await cleanup(i)
+
+    assert pbar.total == 9
+    assert store == expected
+    assert state.tqdm_progress['cleanup'] == sum(expected)
 
 
 # ============================================================================

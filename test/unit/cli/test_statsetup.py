@@ -89,7 +89,8 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         cache=dict(type='sqlite'),
         tempdir=tempdir,
         periods=1,
-        export=dict(type=xv, targetdir=tempdir)
+        export=dict(type=xv, targetdir=tempdir),
+        qmaxsize=1000
     )
     config = dict(loadlimit=llconfig)
     state = Namespace(write=cli.Printer())
