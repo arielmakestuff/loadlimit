@@ -23,7 +23,6 @@ from sqlalchemy import create_engine
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-from loadlimit.event import NoEventTasksError
 import loadlimit.stat as stat
 from loadlimit.stat import (flushtosql, flushtosql_shutdown, SQLTotal,
                             timecoro)
@@ -64,13 +63,17 @@ def test_flushtosql(num):
     @timecoro(name='churn')
     async def churn(i):
         """Do nothing"""
+        print('CHURN')
         await asyncio.sleep(0)
 
     async def run():
         """run"""
+        print('START RUN')
         async for i in aiter(range(num)):
             await churn(i)
+        print('PRINT WAIT RECORDPERIOD')
         await stat.recordperiod.join()
+        print('SHUTDOWN')
         await channel.shutdown.send(0)
 
     # Add to shutdown channel
@@ -84,13 +87,17 @@ def test_flushtosql(num):
     # Run all the tasks
     with BaseLoop() as main:
 
+        print('RECORD PERIOD SETUP')
         # Start every event, and ignore events that don't have any tasks
         stat.recordperiod.open()
         stat.recordperiod.start(asyncfunc=False,
                                 statsdict=timedata.statsdict, flushlimit=5,
                                 sqlengine=engine)
+        print('SCHED RUN')
         asyncio.ensure_future(run())
+        print('LOOP START')
         main.start()
+        print('LOOP END')
 
     assert timedata.statsdict.numdata == 0
 
