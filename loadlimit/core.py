@@ -15,13 +15,14 @@
 from abc import ABCMeta, abstractmethod
 import asyncio
 from asyncio import (CancelledError, InvalidStateError, iscoroutinefunction,
-                     sleep)
+                     sleep, Task)
 from collections.abc import Iterable
 from functools import partial
 from itertools import chain
 import logging
 from signal import SIGTERM, SIGINT, signal as setupsignal
 import sys
+import time
 
 # Third-party imports
 
@@ -29,6 +30,22 @@ import sys
 from . import channel
 from .channel import AnchorType
 from .util import Logger, LogLevel, Namespace
+
+
+# ============================================================================
+# asyncio setup
+# ============================================================================
+
+
+class TimedTask(asyncio.Task):
+
+    cputime = 0.0
+
+    def _step(self, *args, **kwargs):
+        start = time.perf_counter()
+        result = super()._step(*args, **kwargs)
+        self.cputime = self.cputime + (time.perf_counter() - start)
+        return result
 
 
 # ============================================================================
@@ -67,8 +84,16 @@ class BaseLoop:
             msg = 'loop expected AbstractEventLoop, got {} instead'
             raise TypeError(msg.format(type(loop).__name__))
 
-        self._loop = asyncio.new_event_loop() if loop is None else loop
+        self._loop = l = asyncio.new_event_loop() if loop is None else loop
+        l.set_task_factory(self.mktask)
         self._loopend = None
+
+
+    @staticmethod
+    def mktask(loop, coro):
+        """Create TimedTask"""
+        return TimedTask(coro, loop=loop)
+
 
     # --------------------
     # Context
