@@ -491,7 +491,7 @@ class Total(Result):
                     delta.max()]:
             r.append(val.total_seconds() * 1000)
         duration = delta.sum().total_seconds()
-        r.append(numiter / duration)
+        r.append(0 if duration == 0 else numiter / duration)
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
