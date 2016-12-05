@@ -218,7 +218,8 @@ class BaseLoop:
         else:
             self.logger.error('exception ({}): {}', type(exception).__name__,
                               exception)
-        channel.shutdown.put(1)
+        if channel.shutdown.state == channel.ChannelState.listening:
+            channel.shutdown.put(1)
 
     def stopsignal(self, sig, exitcode, *args):
         """Schedule shutdown"""
