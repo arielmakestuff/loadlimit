@@ -451,8 +451,9 @@ class Total(Result):
         """Finish calculations and save result"""
         vals = self.vals
         results = vals.results
-        dfindex = list(sorted(results, key=lambda k: k))
-        data = [results[v] for v in dfindex if results[v] is not None]
+        dfindex = list(v for v in sorted(results, key=lambda k: k)
+                       if results[v] is not None)
+        data = [results[v] for v in dfindex]
         if not data:
             vals.results = None
             return
@@ -527,15 +528,14 @@ class TimeSeries(Result):
         rate_result = vals.rate_result
 
         # Create response dataframe
-        dfindex = list(sorted(response_result, key=lambda k: k))
-        data = [response_result[name] for name in dfindex
-                if response_result[name] is not None]
+        dfindex = list(n for n in sorted(response_result, key=lambda k: k)
+                       if response_result[n] is not None)
+        data = [response_result[name] for name in dfindex]
         df_response = (DataFrame(data, index=dfindex).fillna(0) if data
                        else None)
 
         # Create rate dataframe
-        data = [rate_result[name] for name in dfindex
-                if rate_result[name] is not None]
+        data = [rate_result[name] for name in dfindex]
         df_rate = DataFrame(data, index=dfindex).fillna(0) if data else None
 
         # Return both dataframes
