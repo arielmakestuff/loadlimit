@@ -18,7 +18,9 @@ from collections import defaultdict, namedtuple
 from functools import partial, wraps
 from itertools import count
 from pathlib import Path
-from time import mktime
+from time import mktime, perf_counter
+
+import logging
 
 # Third-party imports
 import numpy as np
@@ -198,7 +200,8 @@ def timecoro(corofunc=None, *, name=None):
             """Record start and stop time"""
             error = None
             failure = None
-            start = now()
+            startdate = now()
+            start = perf_counter()
             try:
                 await corofunc(*args, **kwargs)
             except Failure as e:
@@ -206,11 +209,13 @@ def timecoro(corofunc=None, *, name=None):
             except Exception as e:
                 error = e
             finally:
-                end = now()
+                end = perf_counter()
+                delta = to_timedelta(end - start, unit='s')
+                enddate = startdate + delta
 
             # Call recordperiod event with the start and end times
-            data = Namespace(eventid=name, start=start, end=end, error=error,
-                             failure=failure)
+            data = Namespace(eventid=name, start=startdate, end=enddate,
+                             error=error, failure=failure)
             await recordperiod.send(data)
 
         return wrapper
@@ -310,7 +315,7 @@ class FlushToSQL:
         index = list(range(startind, startind + len(slist)))
         df = DataFrame(slist, index=index,
                        columns=['start', 'end', 'delta'])
-        startind = startind + len(df)
+        startind = startind + len(df.index)
         df.to_sql(curname, sqlconn, if_exists='append')
 
     def flusherror(self, statsdict, key, sqltbl, namekey, sqlengine, sqlconn):
@@ -326,7 +331,7 @@ class FlushToSQL:
         index = list(range(startind, startind + len(slist)))
         df = DataFrame(slist, index=index,
                        columns=['start', 'end', 'delta', 'error'])
-        startind = startind + len(df)
+        startind = startind + len(df.index)
         df.to_sql(curname, sqlconn, if_exists='append')
 
     def flushfailure(self, statsdict, key, sqltbl, namekey, sqlengine,
@@ -459,11 +464,14 @@ class Total(Result):
             return
         df = DataFrame(data, index=dfindex)
         delta = vals.delta
+        # totseries = [df['Total'].sum(), delta.median(),
+        #              delta.mean(), df['Min'].min(), df['Max'].max()]
         totseries = [df['Total'].sum(), delta.median(),
-                     delta.mean(), df['Min'].min(), df['Max'].max(),
-                     df['Rate'].sum()]
-        result = [totseries[0]] + totseries[3:]
-        result[1:1] = [v.total_seconds() * 1000 for v in totseries[1:3]]
+                     delta.mean(), delta.min(), delta.max()]
+        totseries.append(totseries[0] / vals.duration)  # Add overall rate
+        #  result = [totseries[0]] + totseries[3:]
+        result = [totseries[0]] + totseries[-1:]
+        result[1:1] = [v.total_seconds() * 1000 for v in totseries[1:-1]]
         result = DataFrame([Series(result, index=vals.index)],
                            index=['Totals'])
         vals.results = df = df.append(result)
@@ -491,7 +499,8 @@ class Total(Result):
         for val in [delta.median(), delta.mean(), delta.min(),
                     delta.max()]:
             r.append(val.total_seconds() * 1000)
-        duration = delta.sum().total_seconds()
+        #  duration = delta.sum().total_seconds()
+        duration = vals.duration
         r.append(0 if duration == 0 else numiter / duration)
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
@@ -573,8 +582,9 @@ class TimeSeries(Result):
             response.append(avg_response)
 
             # Iterations per second
-            duration = delta.sum().total_seconds()
-            iter_per_sec = 0 if duration <= 0 else len(delta) / duration
+            #  duration = delta.sum().total_seconds()
+            duration = (d - vals.start).total_seconds()
+            iter_per_sec = 0 if duration <= 0 else len(delta.index) / duration
             rate.append(iter_per_sec)
 
         daterange = vals.daterange
