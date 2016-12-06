@@ -85,7 +85,7 @@ class BaseLoop:
             raise TypeError(msg.format(type(loop).__name__))
 
         self._loop = l = asyncio.new_event_loop() if loop is None else loop
-        l.set_task_factory(self.mktask)
+        #  l.set_task_factory(self.mktask)
         self._loopend = None
 
 
@@ -412,6 +412,7 @@ class Client(TaskABC):
 
     async def shutdown(self, config, state):
         """Shutdown the task"""
+        self.option.reschedule = False
         ensure_future = asyncio.ensure_future
         t = [ensure_future(corofunc.shutdown(config, state))
              for corofunc in self._corofunc]
