@@ -16,6 +16,8 @@ from abc import ABCMeta, abstractmethod
 import asyncio
 from asyncio import (CancelledError, InvalidStateError, iscoroutinefunction,
                      sleep, Task)
+import asyncio.futures as asyncio_futures
+from collections import defaultdict
 from collections.abc import Iterable
 from functools import partial
 from itertools import chain
@@ -37,14 +39,37 @@ from .util import Logger, LogLevel, Namespace
 # ============================================================================
 
 
-class TimedTask(asyncio.Task):
+class TimeStorage:
 
-    cputime = 0.0
+    __slots__ = ('total', 'maxother', 'other', 'start')
 
-    def _step(self, *args, **kwargs):
-        start = time.perf_counter()
-        result = super()._step(*args, **kwargs)
-        self.cputime = self.cputime + (time.perf_counter() - start)
+    def __init__(self):
+        self.total = 0
+        self.maxother = 0.0
+        self.other = 0.0
+        self.start = None
+
+
+class TimedTask(Task):
+
+    count = defaultdict(TimeStorage)
+
+    def _step(self, exc=None):
+        count = self.__class__.count
+        if not count or not self._coro.__name__.startswith('_timecoro__'):
+            return super()._step(exc)
+        coroname = self._coro.__name__
+        result = super()._step(exc)
+        waiter = self._fut_waiter
+        if waiter is not None and waiter._state == asyncio_futures._PENDING:
+
+            def updatecount(count, coroname, f):
+                """Update other field of every value in the store"""
+                count[coroname].total += 1
+
+            waiter.add_done_callback(partial(updatecount, count, coroname))
+        else:
+            count[self._coro.__name__].total += 1
         return result
 
 
@@ -85,7 +110,6 @@ class BaseLoop:
             raise TypeError(msg.format(type(loop).__name__))
 
         self._loop = l = asyncio.new_event_loop() if loop is None else loop
-        #  l.set_task_factory(self.mktask)
         self._loopend = None
 
 
