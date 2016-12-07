@@ -149,7 +149,7 @@ async def update_tqdm(config, state, name):
         cur = next(counter)
         await asyncio.sleep(1)
         pbar = state.progressbar[name]
-        if pbar.total is None or cur < pbar.total:
+        if pbar is not None and (pbar.total is None or cur < pbar.total):
             pbar.update(1)
             state.tqdm_progress[name] = cur
 
