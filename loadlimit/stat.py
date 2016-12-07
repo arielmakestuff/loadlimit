@@ -31,6 +31,7 @@ from sqlalchemy import create_engine
 
 # Local imports
 from .channel import AnchorType, DataChannel
+from .core import TimedTask
 from .util import aiter, Namespace, now
 
 
@@ -200,8 +201,12 @@ def timecoro(corofunc=None, *, name=None):
             """Record start and stop time"""
             error = None
             failure = None
-            startdate = now()
+            times = TimedTask.count
+            store = times[name]
             start = perf_counter()
+            if store.start is None:
+                store.start = start
+            startdate = now()
             try:
                 await corofunc(*args, **kwargs)
             except Failure as e:
@@ -210,7 +215,10 @@ def timecoro(corofunc=None, *, name=None):
                 error = e
             finally:
                 end = perf_counter()
-                delta = to_timedelta(end - start, unit='s')
+                delta = end - start
+                store.total += 1
+                response = 1 / (store.total / (end - store.start))
+                delta = to_timedelta(delta, unit='s')
                 enddate = startdate + delta
 
             # Call recordperiod event with the start and end times
@@ -218,6 +226,8 @@ def timecoro(corofunc=None, *, name=None):
                              error=error, failure=failure)
             await recordperiod.send(data)
 
+        wrapper.__name__ = '_timecoro__{}'.format(wrapper.__name__)
+        corofunc.wrapper = wrapper
         return wrapper
 
     if corofunc is None:
