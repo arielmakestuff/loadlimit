@@ -657,7 +657,12 @@ class ShutdownChannel(CommandChannel):
 
     def put(self, data=None):
         """Put command immediately into the channel"""
-        super().put(ShutdownCommand.start, data)
+        if self._queue.full():
+            msg = ('Not sending shutdown({}): shutdown already requested'.
+                   format(data))
+            self.logger.warning(msg)
+        else:
+            super().put(ShutdownCommand.start, data)
 
 
 shutdown = ShutdownChannel()

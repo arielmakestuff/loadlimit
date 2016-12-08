@@ -243,6 +243,7 @@ def test_uncaught_exceptions_no_exception(monkeypatch, caplog):
         calledput = True
 
     monkeypatch.setattr(channel.shutdown, 'put', fake_put)
+    monkeypatch.setattr(channel.shutdown, '_state', channel.ChannelState.listening)
 
     msg = 'what'
     context = dict(message=msg)
@@ -254,6 +255,51 @@ def test_uncaught_exceptions_no_exception(monkeypatch, caplog):
     records = [r for r in caplog.records if r.name != 'asyncio']
     assert len(records) == 1
     assert records[0].message == expected
+    assert calledput is True
+
+
+@pytest.mark.parametrize('state', [
+    s for s in channel.ChannelState if s != channel.ChannelState.listening
+])
+def test_uncaught_exceptions_shutdown_not_listening(monkeypatch, state):
+    """Data is not put into shutdown channel if channel is not listening"""
+
+    calledput = False
+
+    def fake_put(data):
+        nonlocal calledput
+        calledput = True
+
+    monkeypatch.setattr(channel.shutdown, 'put', fake_put)
+    monkeypatch.setattr(channel.shutdown, '_state', state)
+
+    msg = 'what'
+    context = dict(message=msg)
+
+    main = BaseLoop()
+    main.uncaught_exceptions(main.loop, context)
+
+    assert calledput is False
+
+
+def test_uncaught_exceptions_shutdown_listening(monkeypatch):
+    """Data is put into shutdown channel if channel is listening"""
+
+    calledput = False
+
+    def fake_put(data):
+        nonlocal calledput
+        calledput = True
+
+    monkeypatch.setattr(channel.shutdown, 'put', fake_put)
+    monkeypatch.setattr(channel.shutdown, '_state', channel.ChannelState.listening)
+
+    msg = 'what'
+    context = dict(message=msg)
+
+    main = BaseLoop()
+    main.uncaught_exceptions(main.loop, context)
+
     assert calledput is True
 
 
