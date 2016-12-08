@@ -212,8 +212,12 @@ class BaseLoop:
     def uncaught_exceptions(self, loop, context):
         """Handle uncaught exceptions"""
         exception = (context['future'].exception() if 'future' in context
-                     else context['exception'])
-        self.logger.error('got exception: {}', exception, exc_info=True)
+                     else context.get('exception', None))
+        if exception is None:
+            self.logger.error('got exception: {}', context['message'])
+        else:
+            self.logger.error('exception ({}): {}', type(exception).__name__,
+                              exception)
         channel.shutdown.put(1)
 
     def stopsignal(self, sig, exitcode, *args):

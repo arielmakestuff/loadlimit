@@ -198,13 +198,16 @@ def test_stopsignals(monkeypatch, caplog, signal, platform):
 # ============================================================================
 
 
-def test_stoperror(caplog):
-    """Uncaught exceptions shuts the loop down"""
+@pytest.mark.parametrize('exctype', [
+    Exception, RuntimeError, ValueError
+])
+def test_stoperror(caplog, exctype):
+    """Uncaught exceptions logs the exception type and message"""
 
     async def errorme(logger):
         """Raise exception"""
         logger.info('exception me!')
-        raise Exception('what')
+        raise exctype('what')
 
     with BaseLoop() as loop:
         logger = loop.logger
@@ -214,7 +217,7 @@ def test_stoperror(caplog):
     expected = [
         'loop started',
         'exception me!',
-        'got exception: what',
+        'exception ({}): what'.format(exctype.__name__),
         'shutdown',
         'stopping loop',
         'cancelling tasks',
@@ -228,6 +231,30 @@ def test_stoperror(caplog):
 
     result = [r.message for r in caplog.records]
     assert result == expected
+
+
+def test_uncaught_exceptions_no_exception(monkeypatch, caplog):
+    """Exception handler given context without an exception key in context"""
+
+    calledput = False
+
+    def fake_put(data):
+        nonlocal calledput
+        calledput = True
+
+    monkeypatch.setattr(channel.shutdown, 'put', fake_put)
+
+    msg = 'what'
+    context = dict(message=msg)
+    expected = 'got exception: {}'.format(msg)
+
+    main = BaseLoop()
+    main.uncaught_exceptions(main.loop, context)
+
+    records = [r for r in caplog.records if r.name != 'asyncio']
+    assert len(records) == 1
+    assert records[0].message == expected
+    assert calledput is True
 
 
 # ============================================================================
@@ -252,7 +279,7 @@ def test_run_stoperror(caplog):
     expected = [
         'loop started',
         'exception me!',
-        'got exception: what',
+        'exception (Exception): what',
         'shutdown',
         'stopping loop',
         'cancelling tasks',
