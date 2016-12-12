@@ -129,8 +129,15 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         asyncio.ensure_future(run())
         main.start()
 
-    assert statsetup.results is not None
-    assert len(statsetup.results) == 3
+    results = statsetup.results
+    assert results is not None
+    assert len(results) == 5
+    total, response, rate, error, failure = results
+    assert total is not None
+    assert response is not None
+    assert rate is not None
+    assert error is None
+    assert failure is None
 
 
 # ============================================================================

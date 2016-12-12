@@ -18,7 +18,16 @@ from asyncio import iscoroutinefunction
 import pytest
 
 # Local imports
-from loadlimit.stat import timecoro
+import loadlimit.stat as stat
+from loadlimit.stat import Failure, timecoro
+
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+
+pytestmark = pytest.mark.usefixtures('fake_recordperiod_channel')
 
 
 # ============================================================================
@@ -58,6 +67,66 @@ def test_timecoro_decorator():
     assert iscoroutinefunction(wrapped)
     assert hasattr(wrapped, '__wrapped__')
     assert wrapped.__wrapped__ is one
+
+
+# ============================================================================
+# Test catching Failure exception
+# ============================================================================
+
+
+@pytest.mark.parametrize('val', [42, 4.2, 'hello'])
+def test_catch_failure(val, testloop):
+    """Catch raised Failure exceptions"""
+    recordperiod = stat.recordperiod
+
+    @timecoro(name='hello')
+    async def coro():
+        raise Failure(val)
+
+    async def runme():
+        await coro()
+
+    @recordperiod
+    async def catchdata(data):
+        assert data.failure == str(val)
+        await recordperiod.shutdown()
+
+    recordperiod.open()
+    recordperiod.start()
+    testloop.run_until_complete(runme())
+
+
+# ============================================================================
+# Test catching non-Failure exception
+# ============================================================================
+
+
+@pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
+def test_catch_error(exctype, testloop):
+    """Catch raised exceptions"""
+    statsdict = stat.Period()
+    recordperiod = stat.recordperiod
+    err = exctype(42)
+    called_catchdata = False
+
+    @timecoro(name='hello')
+    async def coro():
+        raise err
+
+    async def runme():
+        await coro()
+        await recordperiod.join()
+
+    @recordperiod
+    async def catchdata(data, **kwargs):
+        nonlocal called_catchdata
+        called_catchdata = True
+        assert data.error == err
+
+    recordperiod.open()
+    recordperiod.start(statsdict=statsdict)
+    testloop.run_until_complete(runme())
+    assert called_catchdata is True
 
 
 # ============================================================================

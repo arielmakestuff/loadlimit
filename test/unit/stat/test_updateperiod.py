@@ -15,13 +15,12 @@
 import asyncio
 
 # Third-party imports
-from pandas import DataFrame
+from pandas import DataFrame, Series
 import pytest
 
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-from loadlimit.event import NoEventTasksError
 import loadlimit.stat as stat
 from loadlimit.stat import timecoro, Total
 from loadlimit.util import aiter
@@ -81,6 +80,73 @@ def test_updateperiod():
     df = results()
     assert isinstance(df, DataFrame)
     assert not df.empty
+
+
+# ============================================================================
+# Test adding error
+# ============================================================================
+
+
+@pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
+def test_adderror(exctype, testloop):
+    """updateperiod adds errors to statsdict"""
+    statsdict = stat.Period()
+    recordperiod = stat.recordperiod
+    err = exctype(42)
+    key = 'hello'
+
+    @timecoro(name=key)
+    async def coro():
+        raise err
+
+    async def runme():
+        await coro()
+        await recordperiod.join()
+
+    recordperiod.open()
+    recordperiod.start(statsdict=statsdict)
+    testloop.run_until_complete(runme())
+
+    assert statsdict.numerror(key) == 1
+
+    stored_errors = list(statsdict.error(key))
+    errordata = stored_errors[0]
+
+    assert isinstance(errordata, Series)
+    assert errordata.error == repr(err)
+
+
+# ============================================================================
+# Test adding failure
+# ============================================================================
+
+
+def test_addfailure(testloop):
+    """updateperiod adds errors to statsdict"""
+    statsdict = stat.Period()
+    recordperiod = stat.recordperiod
+    fail = stat.Failure(42)
+    key = 'hello'
+
+    @timecoro(name=key)
+    async def coro():
+        raise fail
+
+    async def runme():
+        await coro()
+        await recordperiod.join()
+
+    recordperiod.open()
+    recordperiod.start(statsdict=statsdict)
+    testloop.run_until_complete(runme())
+
+    assert statsdict.numfailure(key) == 1
+
+    stored_fail = list(statsdict.failure(key))
+    faildata = stored_fail[0]
+
+    assert isinstance(faildata, Series)
+    assert faildata.failure == str(fail.args[0])
 
 
 # ============================================================================

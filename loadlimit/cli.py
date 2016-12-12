@@ -40,7 +40,8 @@ from . import stat
 from .core import BaseLoop, Client
 from .importhook import TaskImporter
 from .stat import (flushtosql, flushtosql_shutdown, Period, SQLTimeSeries,
-                   SQLTotal, TimeSeries, Total)
+                   SQLTotal, SQLTotalError, SQLTotalFailure, TimeSeries, Total,
+                   TotalError, TotalFailure)
 from .util import aiter, LogLevel, Namespace, TZ_UTC
 
 
@@ -552,7 +553,8 @@ class StatSetup:
 
         if llconfig['cache']['type'] == 'memory':
             self._calcobj = tuple(c(statsdict=statsdict)
-                                  for c in [Total, TimeSeries])
+                                  for c in [Total, TimeSeries, TotalError,
+                                            TotalFailure])
             state.sqlengine = None
         else:
             cachefile = pathjoin(llconfig['tempdir'], 'cache.db')
@@ -560,7 +562,8 @@ class StatSetup:
             state.sqlengine = engine = create_engine(connstr)
             self._calcobj = tuple(
                 c(statsdict=statsdict, sqlengine=engine)
-                for c in [SQLTotal, SQLTimeSeries])
+                for c in [SQLTotal, SQLTimeSeries, SQLTotalError,
+                          SQLTotalFailure])
 
             # Subscribe to shutdown command
             channel.shutdown(partial(flushtosql_shutdown, statsdict=statsdict,
@@ -572,8 +575,8 @@ class StatSetup:
         return self
 
     def __exit__(self, errtype, err, errtb):
-        # write = self._state.write
-        total, timeseries = self._calcobj
+        calcobj = self._calcobj
+        total, timeseries, error, failure = calcobj
         statsdict = self._statsdict
         with ExitStack() as stack:
             # Set timeseries periods
@@ -583,29 +586,37 @@ class StatSetup:
                 return
 
             # Enter results contexts
-            for r in [total, timeseries]:
+            for r in calcobj:
                 stack.enter_context(r)
 
             # Run calculations
-            for name, df in total:
-                total.calculate(name, df)
-                timeseries.calculate(name, df)
+            for name, data, err, fail in total:
+                for r in calcobj:
+                    r.calculate(name, data, err, fail)
 
         # Don't export
         exportconfig = self._config['loadlimit']['export']
         export_type = exportconfig['type']
         if export_type is None:
-            self._results = (total.vals.results, ) + timeseries.vals.results
+            results = (
+                (total.vals.results, ) + timeseries.vals.results +
+                (error.vals.results, failure.vals.results)
+            )
+            self._results = results
             return
 
         exportdir = exportconfig['targetdir']
 
         # Export values
-        for calcobj in [total, timeseries]:
-            calcobj.export(export_type, exportdir)
+        for r in calcobj:
+            r.export(export_type, exportdir)
 
         # Capture any changes
-        self._results = (total.vals.results, ) + timeseries.vals.results
+        results = (
+            (total.vals.results, ) + timeseries.vals.results +
+            (error.vals.results, failure.vals.results)
+        )
+        self._results = results
 
     def startevent(self):
         """Start events"""

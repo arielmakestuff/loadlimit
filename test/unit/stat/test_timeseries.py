@@ -129,5 +129,51 @@ def test_sqltimeseries(num):
 
 
 # ============================================================================
+# Test calculate (no data)
+# ============================================================================
+
+
+def test_calculate_nodata(statsdict):
+    """Set results for a key to None if no data"""
+    key = '42'
+    calc = stat.TimeSeries(statsdict=statsdict)
+    calc.vals.periods = 3
+    calc.__enter__()
+    calc.calculate(key, [], [], [])
+
+    vals = calc.vals
+    assert vals
+    assert vals.response_result[key] is None
+    assert vals.rate_result[key] is None
+
+
+# ============================================================================
+# Test export
+# ============================================================================
+
+
+def test_export_nodata(monkeypatch, statsdict):
+    """Do not call exportdf() if there are no results"""
+
+    key = '42'
+    calc = TimeSeries(statsdict=statsdict)
+    calc.vals.periods = 3
+    called = False
+
+    def fake_exportdf(self, df, name, export_type, exportdir):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(TimeSeries, 'exportdf', fake_exportdf)
+
+    with calc:
+        pass
+    assert calc.vals.results == (None, None)
+
+    calc.export('EXPORTTYPE', 'EXPORTDIR')
+    assert called is False
+
+
+# ============================================================================
 #
 # ============================================================================
