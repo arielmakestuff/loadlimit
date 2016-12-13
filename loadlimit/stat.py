@@ -16,9 +16,9 @@ from asyncio import Lock
 from hashlib import sha1
 from collections import defaultdict, namedtuple
 from functools import partial, wraps
-from itertools import count
+from itertools import chain, count
 from pathlib import Path
-from time import mktime
+from time import mktime, perf_counter
 
 # Third-party imports
 import numpy as np
@@ -30,6 +30,15 @@ from sqlalchemy import create_engine
 # Local imports
 from .channel import AnchorType, DataChannel
 from .util import aiter, Namespace, now
+
+
+# ============================================================================
+# Globals
+# ============================================================================
+
+
+CountStoreData = namedtuple('CountStoreData', ['name', 'end', 'rate', 'error',
+                                               'failure'])
 
 
 # ============================================================================
@@ -47,6 +56,103 @@ class Failure(Exception):
 
 
 recordperiod = DataChannel(name='recordperiod')
+
+
+# ============================================================================
+# CountStore
+# ============================================================================
+
+
+class Count:
+    __slots__ = ('success', 'error', 'failure')
+
+    def __init__(self):
+        self.success = 0
+        self.error = defaultdict(lambda: 0)
+        self.failure = defaultdict(lambda: 0)
+
+    def addsuccess(self):
+        """Increment the success count"""
+        self.success += 1
+
+    def adderror(self, err):
+        """Add an error and increment its count"""
+        self.error[err] += 1
+
+    def addfailure(self, fail):
+        """Add a failure and increment its count"""
+        self.failure[fail] += 1
+
+    def sum(self):
+        """Sum of all counts"""
+        return sum(chain([self.success], self.error.values(),
+                         self.failure.values()))
+
+
+class CountStore(defaultdict):
+    """Store counts of wrapped coroutines that have completed"""
+
+    def __init__(self):
+        super().__init__(Count)
+        self.start = None
+        self.start_date = None
+        self.end_date = None
+
+    def __call__(self, corofunc=None, *, name=None):
+        """Decorator that records rate and response time of a corofunc"""
+        if name is None:
+            raise ValueError('name not given')
+        elif not isinstance(name, str):
+            msg = ('name expected str, got {} instead'.
+                   format(type(name).__name__))
+            raise TypeError(msg)
+
+        def deco(corofunc):
+            """Function to decorate corofunc"""
+
+            @wraps(corofunc)
+            async def wrapper(*args, **kwargs):
+                """Measure coroutine runtime"""
+                count = self[name]
+                error = None
+                failure = None
+                start = self.start
+                if start is None:
+                    self.start_date = now()
+                    self.start = start = perf_counter()
+                try:
+                    await corofunc(*args, **kwargs)
+                except Failure as e:
+                    failure = str(e.args[0])
+                    count.failure[failure] += 1
+                except Exception as e:
+                    count.error[repr(e)] += 1
+                    error = e
+                else:
+                    count.success += 1
+                finally:
+                    end = perf_counter()
+                    self.end_date = end_date = now()
+
+                # Calculate rate and response time
+                delta = end - start
+                rate = (count.success / delta) if delta > 0 else 0
+                #  response = (1 / rate) if rate > 0 else None
+
+                # Send data through recordperiod channel
+                data = CountStoreData(name=name, end=end_date, rate=rate,
+                                      error=error, failure=failure)
+                await recordperiod.send(data)
+
+            return wrapper
+
+        if corofunc is None:
+            return deco
+
+        return deco(corofunc)
+
+
+measure = CountStore()
 
 
 # ============================================================================
