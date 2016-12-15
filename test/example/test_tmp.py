@@ -25,7 +25,7 @@ import uvloop
 
 # Local imports
 from loadlimit.core import BaseLoop
-from loadlimit.event import NoEventTasksError, recordperiod, shutdown
+from loadlimit.event import NoEventTasksError, timedata, shutdown
 from loadlimit.stat import timecoro
 from loadlimit.util import aiter
 
@@ -248,8 +248,8 @@ def test_tmp(tmpdir):
         # Add to shutdown event
         shutdown(partial(last_h5_update, store, stats))
 
-        # Create recordperiod anchor that updates stats
-        recordperiod(partial(update_h5, store, stats), runfirst=True)
+        # Create timedata anchor that updates stats
+        timedata(partial(update_h5, store, stats), runfirst=True)
 
         # Create coro to time
         @timecoro('churn')
@@ -268,7 +268,7 @@ def test_tmp(tmpdir):
         with BaseLoop() as main:
 
             # Start every event, and ignore events that don't have any tasks
-            recordperiod.start(ignore=NoEventTasksError, reschedule=True)
+            timedata.start(ignore=NoEventTasksError, reschedule=True)
 
             asyncio.ensure_future(run())
             main.start()

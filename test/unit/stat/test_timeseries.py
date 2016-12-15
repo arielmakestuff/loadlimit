@@ -36,7 +36,7 @@ from loadlimit.util import aiter
 
 
 pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
-                                     'fake_recordperiod_channel')
+                                     'fake_timedata_channel')
 
 
 # ============================================================================
@@ -61,15 +61,14 @@ def test_return_two_df():
         await channel.shutdown.send(0)
 
     # Add to shutdown channel
-    channel.shutdown(stat.recordperiod.shutdown)
+    channel.shutdown(stat.timedata.shutdown)
 
     # Run all the tasks
     with BaseLoop() as main:
 
         # Start every event, and ignore events that don't have any tasks
-        stat.recordperiod.open()
-        stat.recordperiod.start(asyncfunc=False,
-                                statsdict=results.statsdict)
+        stat.timedata.open()
+        stat.timedata.start(asyncfunc=False, statsdict=results.statsdict)
 
         asyncio.ensure_future(run())
         main.start()
@@ -86,7 +85,7 @@ def test_sqltimeseries(num):
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
 
-    timedata = SQLTimeSeries(sqlengine=engine)
+    timeseries = SQLTimeSeries(sqlengine=engine)
 
     # Create coro to time
     @timecoro(name='churn')
@@ -101,27 +100,27 @@ def test_sqltimeseries(num):
         await channel.shutdown.send(0)
 
     # Add to shutdown event
-    channel.shutdown(partial(flushtosql_shutdown, statsdict=timedata.statsdict,
-                             sqlengine=engine))
-    channel.shutdown(stat.recordperiod.shutdown)
+    channel.shutdown(partial(flushtosql_shutdown,
+                             statsdict=timeseries.statsdict, sqlengine=engine))
+    channel.shutdown(stat.timedata.shutdown)
 
-    # Add flushtosql to recordperiod event
-    stat.recordperiod(flushtosql)
+    # Add flushtosql to timedata event
+    stat.timedata(flushtosql)
 
     # Run all the tasks
     with BaseLoop() as main:
 
         # Start every event, and ignore events that don't have any tasks
-        stat.recordperiod.open()
-        stat.recordperiod.start(asyncfunc=False, statsdict=timedata.statsdict,
-                                flushlimit=500, sqlengine=engine)
+        stat.timedata.open()
+        stat.timedata.start(asyncfunc=False, statsdict=timeseries.statsdict,
+                            flushlimit=500, sqlengine=engine)
 
         asyncio.ensure_future(run())
         main.start()
 
-    assert timedata.statsdict.numdata == 0
+    assert timeseries.statsdict.numdata == 0
 
-    df_response, df_rate = timedata(periods=8)
+    df_response, df_rate = timeseries(periods=8)
 
     for df in [df_response, df_rate]:
         assert isinstance(df, DataFrame)

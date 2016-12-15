@@ -55,7 +55,7 @@ class Failure(Exception):
 # ============================================================================
 
 
-recordperiod = DataChannel(name='recordperiod')
+timedata = DataChannel(name='timedata')
 
 
 # ============================================================================
@@ -139,10 +139,10 @@ class CountStore(defaultdict):
                 rate = (count.success / delta) if delta > 0 else 0
                 #  response = (1 / rate) if rate > 0 else None
 
-                # Send data through recordperiod channel
+                # Send data through timedata channel
                 data = CountStoreData(name=name, end=end_date, rate=rate,
                                       error=error, failure=failure)
-                await recordperiod.send(data)
+                await timedata.send(data)
 
             return wrapper
 
@@ -314,10 +314,10 @@ def timecoro(corofunc=None, *, name=None):
             finally:
                 end = now()
 
-            # Call recordperiod event with the start and end times
+            # Call timedata event with the start and end times
             data = Namespace(eventid=name, start=start, end=end, error=error,
                              failure=failure)
-            await recordperiod.send(data)
+            await timedata.send(data)
 
         return wrapper
 
@@ -332,11 +332,11 @@ def timecoro(corofunc=None, *, name=None):
 # ============================================================================
 
 
-@recordperiod(anchortype=AnchorType.first)
+@timedata(anchortype=AnchorType.first)
 async def updateperiod(data, *, statsdict=None, **kwargs):
     """Update a period/defaultdict(list) with period data point
 
-    This is the anchor coro func for the recordperiod event.
+    This is the anchor coro func for the timedata event.
 
     """
     name = data.eventid

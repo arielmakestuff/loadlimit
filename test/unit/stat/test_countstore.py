@@ -31,9 +31,9 @@ from loadlimit.util import now
 
 
 @pytest.fixture
-def fake_recordperiod(monkeypatch):
-    fake_recordperiod = DataChannel(name='recordperiod')
-    monkeypatch.setattr(stat, 'recordperiod', fake_recordperiod)
+def fake_timedata(monkeypatch):
+    fake_timedata = DataChannel(name='timedata')
+    monkeypatch.setattr(stat, 'timedata', fake_timedata)
 
 
 # ============================================================================
@@ -178,7 +178,7 @@ def test_countstore_call_decorator():
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_setkey(monkeypatch):
     """Adds name as a CountStore key"""
     measure = CountStore()
@@ -192,7 +192,7 @@ async def test_countstore_measure_setkey(monkeypatch):
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
 
@@ -204,7 +204,7 @@ async def test_countstore_measure_setkey(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_initstart(monkeypatch):
     """CountStore.start is set with a float"""
 
@@ -219,7 +219,7 @@ async def test_countstore_measure_initstart(monkeypatch):
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
 
@@ -235,7 +235,7 @@ async def test_countstore_measure_initstart(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_noinitstart(monkeypatch):
     """CountStore.start is not set if it contains a non-None value"""
     measure = CountStore()
@@ -250,7 +250,7 @@ async def test_countstore_measure_noinitstart(monkeypatch):
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
 
@@ -260,7 +260,7 @@ async def test_countstore_measure_noinitstart(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_failure():
     """Failure is measured"""
     measure = CountStore()
@@ -276,7 +276,7 @@ async def test_countstore_measure_failure():
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
 
@@ -289,7 +289,7 @@ async def test_countstore_measure_failure():
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 async def test_countstore_measure_error(exctype):
     """Errors are measured"""
@@ -306,7 +306,7 @@ async def test_countstore_measure_error(exctype):
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
 
@@ -319,14 +319,14 @@ async def test_countstore_measure_error(exctype):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_record_data():
-    """Measured data is sent via recordperiod channel"""
+    """Measured data is sent via timedata channel"""
     measure = CountStore()
     noopcalled = False
     checkdata = None
 
-    @stat.recordperiod
+    @stat.timedata
     async def check(data):
         nonlocal checkdata
         checkdata = data
@@ -339,10 +339,10 @@ async def test_countstore_measure_record_data():
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
-        await stat.recordperiod.join()
+        await stat.timedata.join()
 
     assert noopcalled is True
     assert checkdata is not None
@@ -364,16 +364,16 @@ async def test_countstore_measure_record_data():
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 async def test_countstore_measure_record_error(exctype):
-    """Include error in data sent via recordperiod channel"""
+    """Include error in data sent via timedata channel"""
     measure = CountStore()
     noopcalled = False
     checkdata = None
     err = exctype(42)
 
-    @stat.recordperiod
+    @stat.timedata
     async def check(data):
         nonlocal checkdata
         checkdata = data
@@ -387,10 +387,10 @@ async def test_countstore_measure_record_error(exctype):
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
-        await stat.recordperiod.join()
+        await stat.timedata.join()
 
     assert noopcalled is True
     assert checkdata is not None
@@ -398,15 +398,15 @@ async def test_countstore_measure_record_error(exctype):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_recordperiod')
+@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_record_error():
-    """Include failure in data sent via recordperiod channel"""
+    """Include failure in data sent via timedata channel"""
     measure = CountStore()
     noopcalled = False
     checkdata = None
     fail = stat.Failure(42)
 
-    @stat.recordperiod
+    @stat.timedata
     async def check(data):
         nonlocal checkdata
         checkdata = data
@@ -420,10 +420,10 @@ async def test_countstore_measure_record_error():
 
     assert not measure
 
-    with stat.recordperiod.open() as r:
+    with stat.timedata.open() as r:
         r.start()
         await noop()
-        await stat.recordperiod.join()
+        await stat.timedata.join()
 
     assert noopcalled is True
     assert checkdata is not None

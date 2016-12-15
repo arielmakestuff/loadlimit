@@ -27,7 +27,7 @@ from loadlimit.stat import Failure, timecoro
 # ============================================================================
 
 
-pytestmark = pytest.mark.usefixtures('fake_recordperiod_channel')
+pytestmark = pytest.mark.usefixtures('fake_timedata_channel')
 
 
 # ============================================================================
@@ -77,7 +77,7 @@ def test_timecoro_decorator():
 @pytest.mark.parametrize('val', [42, 4.2, 'hello'])
 def test_catch_failure(val, testloop):
     """Catch raised Failure exceptions"""
-    recordperiod = stat.recordperiod
+    timedata = stat.timedata
 
     @timecoro(name='hello')
     async def coro():
@@ -86,13 +86,13 @@ def test_catch_failure(val, testloop):
     async def runme():
         await coro()
 
-    @recordperiod
+    @timedata
     async def catchdata(data):
         assert data.failure == str(val)
-        await recordperiod.shutdown()
+        await timedata.shutdown()
 
-    recordperiod.open()
-    recordperiod.start()
+    timedata.open()
+    timedata.start()
     testloop.run_until_complete(runme())
 
 
@@ -105,7 +105,7 @@ def test_catch_failure(val, testloop):
 def test_catch_error(exctype, testloop):
     """Catch raised exceptions"""
     statsdict = stat.Period()
-    recordperiod = stat.recordperiod
+    timedata = stat.timedata
     err = exctype(42)
     called_catchdata = False
 
@@ -115,16 +115,16 @@ def test_catch_error(exctype, testloop):
 
     async def runme():
         await coro()
-        await recordperiod.join()
+        await timedata.join()
 
-    @recordperiod
+    @timedata
     async def catchdata(data, **kwargs):
         nonlocal called_catchdata
         called_catchdata = True
         assert data.error == err
 
-    recordperiod.open()
-    recordperiod.start(statsdict=statsdict)
+    timedata.open()
+    timedata.start(statsdict=statsdict)
     testloop.run_until_complete(runme())
     assert called_catchdata is True
 

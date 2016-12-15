@@ -41,7 +41,7 @@ def fake_flushtosql(monkeypatch):
 
 
 pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
-                                     'fake_recordperiod_channel')
+                                     'fake_timedata_channel')
 
 
 # ============================================================================
@@ -63,7 +63,7 @@ def test_flushtosql(num):
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
 
-    timedata = SQLTotal(sqlengine=engine)
+    timetotal = SQLTotal(sqlengine=engine)
 
     # Create coro to time
     @timecoro(name='churn')
@@ -78,36 +78,35 @@ def test_flushtosql(num):
         async for i in aiter(range(num)):
             await churn(i)
         print('PRINT WAIT RECORDPERIOD')
-        await stat.recordperiod.join()
+        await stat.timedata.join()
         print('SHUTDOWN')
         await channel.shutdown.send(0)
 
     # Add to shutdown channel
     channel.shutdown(partial(stat.flushtosql_shutdown,
-                             statsdict=timedata.statsdict, sqlengine=engine))
-    channel.shutdown(stat.recordperiod.shutdown)
+                             statsdict=timetotal.statsdict, sqlengine=engine))
+    channel.shutdown(stat.timedata.shutdown)
 
-    # Add flushtosql to recordperiod event
-    stat.recordperiod(stat.flushtosql)
+    # Add flushtosql to timedata event
+    stat.timedata(stat.flushtosql)
 
     # Run all the tasks
     with BaseLoop() as main:
 
         print('RECORD PERIOD SETUP')
         # Start every event, and ignore events that don't have any tasks
-        stat.recordperiod.open()
-        stat.recordperiod.start(asyncfunc=False,
-                                statsdict=timedata.statsdict, flushlimit=5,
-                                sqlengine=engine)
+        stat.timedata.open()
+        stat.timedata.start(asyncfunc=False, statsdict=timetotal.statsdict,
+                            flushlimit=5, sqlengine=engine)
         print('SCHED RUN')
         asyncio.ensure_future(run())
         print('LOOP START')
         main.start()
         print('LOOP END')
 
-    assert timedata.statsdict.numdata == 0
+    assert timetotal.statsdict.numdata == 0
 
-    df = timedata()
+    df = timetotal()
 
     assert isinstance(df, DataFrame)
     assert not df.empty

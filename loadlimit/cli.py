@@ -569,8 +569,8 @@ class StatSetup:
             channel.shutdown(partial(flushtosql_shutdown, statsdict=statsdict,
                                      sqlengine=engine))
 
-            # Add flushtosql to recordperiod event
-            stat.recordperiod(flushtosql)
+            # Add flushtosql to timedata event
+            stat.timedata(flushtosql)
 
         return self
 
@@ -624,7 +624,7 @@ class StatSetup:
         engine = self._state.sqlengine
 
         # Assign shutdown tasks
-        channel.shutdown(stat.recordperiod.shutdown)
+        channel.shutdown(stat.timedata.shutdown)
         channel.shutdown(cleanup.shutdown)
 
         # Start cleanup channel
@@ -632,9 +632,9 @@ class StatSetup:
         cleanup.open()
         cleanup.start()
 
-        # Start recordperiod channel
-        stat.recordperiod.open(maxsize=qmaxsize, cleanup=cleanup)
-        stat.recordperiod.start(statsdict=self._statsdict, sqlengine=engine)
+        # Start timedata channel
+        stat.timedata.open(maxsize=qmaxsize, cleanup=cleanup)
+        stat.timedata.start(statsdict=self._statsdict, sqlengine=engine)
 
     @property
     def results(self):

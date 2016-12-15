@@ -36,7 +36,7 @@ from loadlimit.stat import Result, timecoro
 
 
 pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
-                                     'fake_recordperiod_channel')
+                                     'fake_timedata_channel')
 
 
 # ============================================================================
@@ -112,7 +112,7 @@ def test_statsetup_results(monkeypatch, numiter, xv):
         async for i in aiter(range(numiter)):
             await churn(i)
             await churn2(i)
-        await stat.recordperiod.join()
+        await stat.timedata.join()
         await channel.shutdown.send(0)
 
     statsetup = StatSetup(config, state)
