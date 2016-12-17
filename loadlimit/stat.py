@@ -135,8 +135,6 @@ class CountStore(defaultdict):
             async def wrapper(*args, **kwargs):
                 """Measure coroutine runtime"""
                 count = self[name]
-                error = None
-                failure = None
                 start = self.start
                 if start is None:
                     self.start_date = now()
@@ -148,22 +146,11 @@ class CountStore(defaultdict):
                     count.failure[failure] += 1
                 except Exception as e:
                     count.error[repr(e)] += 1
-                    error = e
                 else:
                     count.success += 1
                 finally:
-                    self.end = end = perf_counter()
-                    self.end_date = end_date = now()
-
-                # Calculate rate and response time
-                delta = end - start
-                rate = (count.success / delta) if delta > 0 else 0
-                #  response = (1 / rate) if rate > 0 else None
-
-                # Send data through timedata channel
-                data = CountStoreData(name=name, end=end_date, delta=delta,
-                                      rate=rate, error=error, failure=failure)
-                await timedata.send(data)
+                    self.end = perf_counter()
+                    self.end_date = now()
 
             return wrapper
 

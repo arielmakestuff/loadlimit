@@ -19,21 +19,9 @@ from collections import defaultdict
 import pytest
 
 # Local imports
-from loadlimit.channel import DataChannel
 import loadlimit.stat as stat
 from loadlimit.stat import Count, CountStore
 from loadlimit.util import now
-
-
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
-@pytest.fixture
-def fake_timedata(monkeypatch):
-    fake_timedata = DataChannel(name='timedata')
-    monkeypatch.setattr(stat, 'timedata', fake_timedata)
 
 
 # ============================================================================
@@ -178,7 +166,6 @@ def test_countstore_call_decorator():
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_setkey(monkeypatch):
     """Adds name as a CountStore key"""
     measure = CountStore()
@@ -192,9 +179,7 @@ async def test_countstore_measure_setkey(monkeypatch):
 
     assert not measure
 
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
+    await noop()
 
     assert len(measure) == 1
     assert list(measure.keys()) == ['run']
@@ -204,7 +189,6 @@ async def test_countstore_measure_setkey(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_initstart(monkeypatch):
     """CountStore.start is set with a float"""
 
@@ -219,9 +203,7 @@ async def test_countstore_measure_initstart(monkeypatch):
 
     assert not measure
 
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
+    await noop()
 
     assert measure.start is not None
     assert isinstance(measure.start, float)
@@ -235,7 +217,6 @@ async def test_countstore_measure_initstart(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_noinitstart(monkeypatch):
     """CountStore.start is not set if it contains a non-None value"""
     measure = CountStore()
@@ -250,9 +231,7 @@ async def test_countstore_measure_noinitstart(monkeypatch):
 
     assert not measure
 
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
+    await noop()
 
     assert called is True
     assert measure.start == 42
@@ -260,7 +239,6 @@ async def test_countstore_measure_noinitstart(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
 async def test_countstore_measure_failure():
     """Failure is measured"""
     measure = CountStore()
@@ -276,9 +254,7 @@ async def test_countstore_measure_failure():
 
     assert not measure
 
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
+    await noop()
 
     assert called is True
     count = measure['run']
@@ -289,7 +265,6 @@ async def test_countstore_measure_failure():
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 async def test_countstore_measure_error(exctype):
     """Errors are measured"""
@@ -306,9 +281,7 @@ async def test_countstore_measure_error(exctype):
 
     assert not measure
 
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
+    await noop()
 
     assert called is True
     count = measure['run']
@@ -316,119 +289,6 @@ async def test_countstore_measure_error(exctype):
     assert not count.failure
     assert len(count.error) == 1
     assert count.error[repr(err)] == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
-async def test_countstore_measure_record_data():
-    """Measured data is sent via timedata channel"""
-    measure = CountStore()
-    noopcalled = False
-    checkdata = None
-
-    @stat.timedata
-    async def check(data):
-        nonlocal checkdata
-        checkdata = data
-
-    @measure(name='run')
-    async def noop():
-        """Do nothing"""
-        nonlocal noopcalled
-        noopcalled = True
-
-    assert not measure
-
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
-        await stat.timedata.join()
-
-    assert noopcalled is True
-    assert checkdata is not None
-
-    end_date = now()
-    assert isinstance(checkdata, stat.CountStoreData)
-
-    # Check end
-    assert end_date >= checkdata.end
-    assert checkdata.end.floor('D') == end_date.floor('D')
-
-    # Check rate
-    assert isinstance(checkdata.rate, float)
-    assert checkdata.rate > 0
-
-    # Check error and failure
-    assert checkdata.error is None
-    assert checkdata.failure is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
-@pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
-async def test_countstore_measure_record_error(exctype):
-    """Include error in data sent via timedata channel"""
-    measure = CountStore()
-    noopcalled = False
-    checkdata = None
-    err = exctype(42)
-
-    @stat.timedata
-    async def check(data):
-        nonlocal checkdata
-        checkdata = data
-
-    @measure(name='run')
-    async def noop():
-        """Do nothing"""
-        nonlocal noopcalled
-        noopcalled = True
-        raise err
-
-    assert not measure
-
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
-        await stat.timedata.join()
-
-    assert noopcalled is True
-    assert checkdata is not None
-    assert checkdata.error ==  err
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures('fake_timedata')
-async def test_countstore_measure_record_error():
-    """Include failure in data sent via timedata channel"""
-    measure = CountStore()
-    noopcalled = False
-    checkdata = None
-    fail = stat.Failure(42)
-
-    @stat.timedata
-    async def check(data):
-        nonlocal checkdata
-        checkdata = data
-
-    @measure(name='run')
-    async def noop():
-        """Do nothing"""
-        nonlocal noopcalled
-        noopcalled = True
-        raise fail
-
-    assert not measure
-
-    with stat.timedata.open() as r:
-        r.start()
-        await noop()
-        await stat.timedata.join()
-
-    assert noopcalled is True
-    assert checkdata is not None
-    assert checkdata.error is None
-    assert checkdata.failure == str(fail.args[0])
 
 
 # ============================================================================
