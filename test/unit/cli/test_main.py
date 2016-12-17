@@ -111,7 +111,7 @@ def test_main_default_args():
 
     names = ['timezone', 'numusers', 'duration', 'importer',
              'show-progressbar', 'cache', 'export', 'periods',
-             'logging', 'qmaxsize']
+             'logging', 'qmaxsize', 'flushwait']
     assert len(llconfig) == len(names)
     for name in names:
         assert name in llconfig
@@ -127,6 +127,7 @@ def test_main_default_args():
     assert llconfig['periods'] == 8
     assert llconfig['logging']['loglevel'] == LogLevel.WARNING
     assert llconfig['qmaxsize'] == 1000
+    assert llconfig['flushwait'] == Timedelta('2s')
 
 
 @pytest.mark.parametrize('val', ['fhjdsf', '42z', 'one zots'])
@@ -287,6 +288,19 @@ def test_main_logfile_isdir(monkeypatch):
         main(arglist=args, config=config)
 
     assert err.value.args == (str(filename), )
+
+
+@pytest.mark.parametrize('val', ['hello', (42, )])
+def test_main_flushwait_badval(val):
+    """Raise error if flushwait is given bad value"""
+    config = {}
+    args = ['--flush-wait', str(val), '-d', '1s', 'what']
+
+    expected = 'duration option got invalid value: {}'.format(val)
+    with pytest.raises(ValueError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (expected, )
 
 
 # ============================================================================

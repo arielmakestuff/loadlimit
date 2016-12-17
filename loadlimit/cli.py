@@ -358,7 +358,7 @@ class ProcessOptions:
         llconfig = config['loadlimit']
         order = ['timezone', 'numusers', 'duration', 'taskimporter', 'tqdm',
                  'cache', 'export', 'periods', 'logging', 'verbose',
-                 'qmaxsize']
+                 'qmaxsize', 'flushwait']
         for name in order:
             getattr(self, name)(llconfig, args)
 
@@ -435,6 +435,17 @@ class ProcessOptions:
     def qmaxsize(self, config, args):
         """Setup verbosity config"""
         config['qmaxsize'] = args.qmaxsize
+
+    def flushwait(self, config, args):
+        """Setup flushwait config"""
+        try:
+            delta = Timedelta(args.flushwait)
+        except Exception:
+            delta = None
+        if not isinstance(delta, Timedelta):
+            raise ValueError('duration option got invalid value: {}'.
+                             format(args.flushwait))
+        config['flushwait'] = delta
 
 
 process_options = ProcessOptions()
@@ -520,6 +531,13 @@ def defaultoptions(parser):
     parser.add_argument(
         '--pending-size', dest='qmaxsize', default=1000, type=int,
         help='Number of datapoints waiting to be worked on. Default: 1000'
+    )
+
+    # Set time to wait between flushes
+    parser.add_argument(
+        '--flush-wait', dest='flushwait', default='2s',
+        help=('The amount of time to wait before flushing data to disk. '
+              'Default: 2 seconds')
     )
 
     parser.set_defaults(_main=RunLoop())

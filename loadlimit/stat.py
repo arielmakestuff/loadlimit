@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # loadlimit/stat.py
 # Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
@@ -13,6 +14,7 @@
 # Stdlib imports
 import asyncio
 from asyncio import Lock
+from copy import deepcopy
 from hashlib import sha1
 from collections import defaultdict, namedtuple
 from functools import partial, wraps
@@ -23,7 +25,8 @@ from time import mktime, perf_counter
 # Third-party imports
 import numpy as np
 import pandas as pd
-from pandas import (DataFrame, read_sql_table, Series, Timestamp, to_timedelta)
+from pandas import (DataFrame, read_sql_table, Series, Timedelta, Timestamp,
+                    to_timedelta)
 from pandas.io import sql
 from sqlalchemy import create_engine
 
@@ -37,8 +40,9 @@ from .util import aiter, Namespace, now
 # ============================================================================
 
 
-CountStoreData = namedtuple('CountStoreData', ['name', 'end', 'rate', 'error',
-                                               'failure'])
+CountStoreData = namedtuple('CountStoreData',
+                            ['name', 'end', 'delta', 'rate', 'error',
+                             'failure'])
 
 
 # ============================================================================
@@ -96,7 +100,24 @@ class CountStore(defaultdict):
         super().__init__(Count)
         self.start = None
         self.start_date = None
+        self.end = None
         self.end_date = None
+
+    def __deepcopy__(self, memo):
+        """Create a deepcopy of this CountStore instance"""
+        copy = self.__class__()
+
+        # Copy attributes
+        copy.start = deepcopy(self.start, memo)
+        copy.start_date = deepcopy(self.start_date, memo)
+        copy.end = deepcopy(self.end, memo)
+        copy.end_date = deepcopy(self.end_date, memo)
+
+        # Copy dict
+        for k, v in self.items():
+            copy[k] = deepcopy(v, memo)
+
+        return copy
 
     def __call__(self, corofunc=None, *, name=None):
         """Decorator that records rate and response time of a corofunc"""
@@ -131,7 +152,7 @@ class CountStore(defaultdict):
                 else:
                     count.success += 1
                 finally:
-                    end = perf_counter()
+                    self.end = end = perf_counter()
                     self.end_date = end_date = now()
 
                 # Calculate rate and response time
@@ -140,8 +161,8 @@ class CountStore(defaultdict):
                 #  response = (1 / rate) if rate > 0 else None
 
                 # Send data through timedata channel
-                data = CountStoreData(name=name, end=end_date, rate=rate,
-                                      error=error, failure=failure)
+                data = CountStoreData(name=name, end=end_date, delta=delta,
+                                      rate=rate, error=error, failure=failure)
                 await timedata.send(data)
 
             return wrapper
@@ -153,6 +174,86 @@ class CountStore(defaultdict):
 
 
 measure = CountStore()
+
+
+class SendTimeData:
+
+    stop = False
+
+    def __init__(self, countstore, *, flushwait=None, channel=None):
+        if not isinstance(flushwait, (type(None), Timedelta)):
+            msg = 'flushwait expected pandas.Timedelta, got {} instead'
+            raise TypeError(msg.format(type(flushwait).__name__))
+
+        if not isinstance(channel, (type(None), DataChannel)):
+            msg = 'channel expected DataChannel, got {} instead'
+            raise TypeError(msg.format(type(channel).__name__))
+
+        self._countstore = countstore
+        self._flushwait = (2 if flushwait is None else
+                           flushwait.total_seconds())
+        self._channel = timedata if channel is None else channel
+
+    async def __call__(self):
+        """Store timedata"""
+        wait = self._flushwait
+        countstore = self._countstore
+        snapshot = None
+        prevsnapshot = None
+        sendfunc = self.send
+        prevtime = perf_counter()
+        while True:
+            await asyncio.sleep(wait)
+            if self.stop:
+                break
+            curtime = perf_counter()
+            delta = curtime - prevtime
+            snapshot = deepcopy(countstore)
+            await sendfunc(delta, snapshot, prevsnapshot)
+            prevtime = curtime
+            prevsnapshot = snapshot
+            if self.stop:
+                break
+
+    async def send(self, delta, snapshot, prevsnapshot):
+        """Send snapshot diff"""
+        mkdata = self.mkdata
+        end_date = self._countstore.end_date
+        channel = self._channel
+        async for k, count in aiter(snapshot.items()):
+            prevcount = None if prevsnapshot is None else prevsnapshot[k]
+            data = await mkdata(delta, end_date, k, count, prevcount)
+            await channel.send(data)
+
+    async def mkdata(self, delta, end_date, key, count, prevcount):
+        """Calculate rate and response time"""
+        success_diff = (count.success - prevcount.success if prevcount
+                        else count.success)
+        rate = (success_diff / delta) if delta > 0 else 0
+        if end_date is None:
+            end_date = now()
+        #  response = (1 / rate) if rate > 0 else None
+
+        prev = prevcount.error if prevcount else {}
+        error = await self.countdiff(count.error, prev)
+
+        prev = prevcount.failure if prevcount else {}
+        failure = await self.countdiff(count.failure, prev)
+
+        data = CountStoreData(name=key, end=end_date, delta=delta, rate=rate,
+                              error=error, failure=failure)
+        return data
+
+    async def countdiff(self, count, prevcount):
+        """Return dictionary with count differences"""
+        diff = {}
+        async for k, v in aiter(count.items()):
+            diff[k] = v - prevcount[k] if k in prevcount else v
+        return diff
+
+    async def shutdown(self, *args, **kwargs):
+        """Shutdown the coro"""
+        self.stop = True
 
 
 # ============================================================================
