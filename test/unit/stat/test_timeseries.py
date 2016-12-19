@@ -44,7 +44,7 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 # ============================================================================
 
 
-def test_return_two_df():
+def test_return_two_df(testloop):
     """Timeseries generates 2 dataframes"""
     results = TimeSeries()
 
@@ -79,7 +79,7 @@ def test_return_two_df():
 
 
 @pytest.mark.parametrize('num', [1000])
-def test_sqltimeseries(num):
+def test_sqltimeseries(testloop, num):
     """SQL timeseries works well"""
 
     # Setup sqlalchemy engine

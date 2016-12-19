@@ -67,7 +67,7 @@ class BaseLoop:
             msg = 'loop expected AbstractEventLoop, got {} instead'
             raise TypeError(msg.format(type(loop).__name__))
 
-        self._loop = asyncio.new_event_loop() if loop is None else loop
+        self._loop = asyncio.get_event_loop() if loop is None else loop
         self._loopend = None
 
     # --------------------
@@ -78,7 +78,6 @@ class BaseLoop:
         """Setup main loop"""
         # Setup main loop
         loop = self._loop
-        asyncio.set_event_loop(loop)
         self._loopend = self.create_endfuture(loop)
 
         # Setup error handler

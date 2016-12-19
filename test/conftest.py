@@ -55,6 +55,8 @@ def testloop(event_loop):
     """Cleanup event_loop run"""
     asyncio.set_event_loop(event_loop)
     yield event_loop
+    if event_loop.is_closed():
+        return
     f = asyncio.gather(*asyncio.Task.all_tasks(loop=event_loop),
                        loop=event_loop)
     f.cancel()

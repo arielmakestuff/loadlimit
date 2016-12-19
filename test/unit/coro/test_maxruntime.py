@@ -30,7 +30,7 @@ from loadlimit.coro import maxruntime
 
 
 @pytest.mark.parametrize('cls', [Timedelta, timedelta])
-def test_stops_event(cls):
+def test_stops_event(testloop, cls):
     """Stops the event loop after the specified amount of time"""
 
     val = 0

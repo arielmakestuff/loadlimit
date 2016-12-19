@@ -40,7 +40,7 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 # ============================================================================
 
 
-def test_updateperiod():
+def test_updateperiod(testloop):
     """updateperiod updates statsdict with timeseries data points"""
 
     results = Total()

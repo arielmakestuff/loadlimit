@@ -105,7 +105,7 @@ def fake_sysexit(exitcode):
 # ============================================================================
 
 
-def test_tqdm(monkeypatch, modpath):
+def test_tqdm(monkeypatch, testloop, modpath):
     """Enable tqdm progress bars"""
     monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
     monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',

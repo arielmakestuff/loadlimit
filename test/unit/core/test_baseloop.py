@@ -157,7 +157,7 @@ def choose_platform(platlist):
     (s, p) for s in [SIGTERM, SIGINT]
     for p in choose_platform(['win32', 'linux'])
 ])
-def test_stopsignals(monkeypatch, caplog, signal, platform):
+def test_stopsignals(monkeypatch, caplog, testloop, signal, platform):
     """SIGTERM and SIGINT stop the loop"""
     if sys.platform != platform:
         monkeypatch.setattr(sys, 'platform', platform)
@@ -201,7 +201,7 @@ def test_stopsignals(monkeypatch, caplog, signal, platform):
 @pytest.mark.parametrize('exctype', [
     Exception, RuntimeError, ValueError
 ])
-def test_stoperror(caplog, exctype):
+def test_stoperror(caplog, testloop, exctype):
     """Uncaught exceptions logs the exception type and message"""
 
     async def errorme(logger):
@@ -243,7 +243,8 @@ def test_uncaught_exceptions_no_exception(monkeypatch, caplog):
         calledput = True
 
     monkeypatch.setattr(channel.shutdown, 'put', fake_put)
-    monkeypatch.setattr(channel.shutdown, '_state', channel.ChannelState.listening)
+    monkeypatch.setattr(channel.shutdown, '_state',
+                        channel.ChannelState.listening)
 
     msg = 'what'
     context = dict(message=msg)
@@ -292,7 +293,8 @@ def test_uncaught_exceptions_shutdown_listening(monkeypatch):
         calledput = True
 
     monkeypatch.setattr(channel.shutdown, 'put', fake_put)
-    monkeypatch.setattr(channel.shutdown, '_state', channel.ChannelState.listening)
+    monkeypatch.setattr(channel.shutdown, '_state',
+                        channel.ChannelState.listening)
 
     msg = 'what'
     context = dict(message=msg)
@@ -308,7 +310,7 @@ def test_uncaught_exceptions_shutdown_listening(monkeypatch):
 # ============================================================================
 
 
-def test_run_stoperror(caplog):
+def test_run_stoperror(caplog, testloop):
     """run -- uncaught exceptions shuts the loop down"""
     async def errorme(logger):
         """Raise exception"""
@@ -346,7 +348,7 @@ def test_run_stoperror(caplog):
     (s, p) for s in [SIGTERM, SIGINT]
     for p in choose_platform(['win32', 'linux'])
 ])
-def test_run_stopsignals(monkeypatch, caplog, signal, platform):
+def test_run_stopsignals(monkeypatch, caplog, testloop, signal, platform):
     """run -- SIGTERM and SIGINT stop the loop"""
     if sys.platform != platform:
         monkeypatch.setattr(sys, 'platform', platform)
@@ -387,7 +389,7 @@ def test_run_stopsignals(monkeypatch, caplog, signal, platform):
 # ============================================================================
 
 
-def test_running():
+def test_running(testloop):
     """running attr returns True if loop is still running"""
 
     async def check_loop_state(baseloop, future):
@@ -416,7 +418,7 @@ def test_exitcode_loop_not_started():
     assert baseloop.exitcode is None
 
 
-def test_exitcode_loop_still_running():
+def test_exitcode_loop_still_running(testloop):
     """exitcode returns None if loop is still running"""
 
     async def check_exitcode(baseloop, future):

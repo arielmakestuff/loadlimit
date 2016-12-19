@@ -28,7 +28,7 @@ from loadlimit.core import BaseLoop
 # ============================================================================
 
 
-def test_no_datefmt(caplog):
+def test_no_datefmt(testloop, caplog):
     """Use default format"""
 
     caplog.set_level(logging.WARNING)

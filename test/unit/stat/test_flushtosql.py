@@ -50,7 +50,7 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 
 
 @pytest.mark.parametrize('num', [10, 12])
-def test_flushtosql(num):
+def test_flushtosql(testloop, num):
     """updateperiod updates statsdict with timeseries data points
 
     num fixture allows testing the flushtosql_shutdown coro func for:

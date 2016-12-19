@@ -92,7 +92,7 @@ def fake_sysexit(exitcode):
 # ============================================================================
 
 
-def test_runloop(monkeypatch, modpath):
+def test_runloop(monkeypatch, testloop, modpath):
     """Find tasks in task files and add to loadlimit.task.__tasks__"""
     monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
     monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',

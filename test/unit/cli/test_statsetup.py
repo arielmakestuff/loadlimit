@@ -77,7 +77,7 @@ def test_statsetup_context(monkeypatch):
     (i, xv) for i in [1, 10, 1000]
     for xv in [None, 'sqlite']
 ])
-def test_statsetup_results(monkeypatch, numiter, xv):
+def test_statsetup_results(monkeypatch, testloop, numiter, xv):
     """StatSetup results"""
     tempdir = '/not/exist'
 
