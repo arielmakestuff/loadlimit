@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# test/unit/stat/test_timeseris.py
+# test/unit/stat/test_timeseries.py
 # Copyright (C) 2016 authors and contributors (see AUTHORS file)
 #
 # This module is released under the MIT License.
@@ -16,17 +16,16 @@ import asyncio
 from functools import partial
 
 # Third-party imports
-from pandas import DataFrame
+from pandas import DataFrame, to_timedelta
 import pytest
 from sqlalchemy import create_engine
 
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-from loadlimit.event import NoEventTasksError
 import loadlimit.stat as stat
-from loadlimit.stat import (flushtosql, flushtosql_shutdown, SQLTimeSeries,
-                            timecoro, TimeSeries)
+from loadlimit.stat import (CountStore, flushtosql, flushtosql_shutdown,
+                            SendTimeData, SQLTimeSeries, TimeSeries)
 from loadlimit.util import aiter
 
 
@@ -46,10 +45,11 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 
 def test_return_two_df(testloop):
     """Timeseries generates 2 dataframes"""
-    results = TimeSeries()
+    measure = CountStore()
+    results = TimeSeries(countstore=measure)
 
     # Create coro to time
-    @timecoro(name='churn')
+    @measure(name='churn')
     async def churn(i):
         """Do nothing"""
         await asyncio.sleep(0)
@@ -60,11 +60,19 @@ def test_return_two_df(testloop):
             await churn(i)
         await channel.shutdown.send(0)
 
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=stat.timedata)
+
     # Add to shutdown channel
+    channel.shutdown(send.shutdown)
     channel.shutdown(stat.timedata.shutdown)
 
     # Run all the tasks
     with BaseLoop() as main:
+
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
 
         # Start every event, and ignore events that don't have any tasks
         stat.timedata.open()
@@ -73,22 +81,23 @@ def test_return_two_df(testloop):
         asyncio.ensure_future(run())
         main.start()
 
-    ret = results(periods=8)
+    ret = results()
     assert len(ret) == 2
-    assert all(not r.empty and isinstance(r, DataFrame) for r in ret)
+    assert all(isinstance(r, DataFrame) and not r.empty for r in ret)
 
 
 @pytest.mark.parametrize('num', [1000])
 def test_sqltimeseries(testloop, num):
     """SQL timeseries works well"""
+    measure = CountStore()
 
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
 
-    timeseries = SQLTimeSeries(sqlengine=engine)
+    timeseries = SQLTimeSeries(sqlengine=engine, countstore=measure)
 
     # Create coro to time
-    @timecoro(name='churn')
+    @measure(name='churn')
     async def churn(i):
         """Do nothing"""
         await asyncio.sleep(0)
@@ -99,7 +108,12 @@ def test_sqltimeseries(testloop, num):
             await churn(i)
         await channel.shutdown.send(0)
 
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=stat.timedata)
+
     # Add to shutdown event
+    channel.shutdown(send.shutdown)
     channel.shutdown(partial(flushtosql_shutdown,
                              statsdict=timeseries.statsdict, sqlengine=engine))
     channel.shutdown(stat.timedata.shutdown)
@@ -109,6 +123,9 @@ def test_sqltimeseries(testloop, num):
 
     # Run all the tasks
     with BaseLoop() as main:
+
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
 
         # Start every event, and ignore events that don't have any tasks
         stat.timedata.open()
@@ -120,11 +137,9 @@ def test_sqltimeseries(testloop, num):
 
     assert timeseries.statsdict.numdata == 0
 
-    df_response, df_rate = timeseries(periods=8)
-
-    for df in [df_response, df_rate]:
-        assert isinstance(df, DataFrame)
-        assert not df.empty
+    results = timeseries()
+    assert len(results) == 2
+    assert all(isinstance(r, DataFrame) and not r.empty for r in results)
 
 
 # ============================================================================
@@ -134,9 +149,9 @@ def test_sqltimeseries(testloop, num):
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
+    measure = CountStore()
     key = '42'
-    calc = stat.TimeSeries(statsdict=statsdict)
-    calc.vals.periods = 3
+    calc = stat.TimeSeries(statsdict=statsdict, countstore=measure)
     calc.__enter__()
     calc.calculate(key, [], [], [])
 
@@ -153,10 +168,8 @@ def test_calculate_nodata(statsdict):
 
 def test_export_nodata(monkeypatch, statsdict):
     """Do not call exportdf() if there are no results"""
-
-    key = '42'
-    calc = TimeSeries(statsdict=statsdict)
-    calc.vals.periods = 3
+    measure = CountStore()
+    calc = TimeSeries(statsdict=statsdict, countstore=measure)
     called = False
 
     def fake_exportdf(self, df, name, export_type, exportdir):
@@ -167,7 +180,9 @@ def test_export_nodata(monkeypatch, statsdict):
 
     with calc:
         pass
-    assert calc.vals.results == (None, None)
+    results = calc.vals.results
+    assert len(results) == 2
+    assert results == (None, None)
 
     calc.export('EXPORTTYPE', 'EXPORTDIR')
     assert called is False

@@ -14,9 +14,10 @@
 # Stdlib imports
 
 # Third-party imports
+from pandas import DataFrame
 
 # Local imports
-from loadlimit.stat import SQLTimeSeries
+from loadlimit.stat import CountStore, SQLTimeSeries
 
 
 # ============================================================================
@@ -26,11 +27,12 @@ from loadlimit.stat import SQLTimeSeries
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
+    measure = CountStore()
     key = '42'
-    calc = SQLTimeSeries(statsdict=statsdict)
-    calc.vals.periods = 3
+    calc = SQLTimeSeries(statsdict=statsdict, countstore=measure)
+    empty = DataFrame()
     calc.__enter__()
-    calc.calculate(key, [], [], [])
+    calc.calculate(key, empty, empty, empty)
     vals = calc.vals
     assert vals.response_result[key] is None
     assert vals.rate_result[key] is None

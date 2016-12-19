@@ -321,7 +321,7 @@ def test_call_stop_after_send(testloop):
             nonlocal called_send
             called_send = True
             await super().send(d, s, p)
-            await channel.join()
+            await self.shutdown()
 
     key = 'hello'
     c = CountStore()
@@ -337,11 +337,10 @@ def test_call_stop_after_send(testloop):
     async def check(data):
         nonlocal calledcheck
         calledcheck = True
-        await s.shutdown()
 
     t = asyncio.ensure_future(s())
     with channel.open() as r:
-        r.start()
+        r.start(asyncfunc=False)
         testloop.run_until_complete(t)
 
     assert calledcheck is True

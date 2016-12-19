@@ -17,6 +17,7 @@ from contextlib import contextmanager, ExitStack
 from pathlib import Path, PurePosixPath
 
 # Third-party imports
+from pandas import to_timedelta
 import pytest
 from sqlalchemy import create_engine
 
@@ -27,7 +28,7 @@ import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
 from loadlimit.util import aiter, Namespace
 import loadlimit.stat as stat
-from loadlimit.stat import Result, timecoro
+from loadlimit.stat import CountStore, Result
 
 
 # ============================================================================
@@ -79,8 +80,10 @@ def test_statsetup_context(monkeypatch):
 ])
 def test_statsetup_results(monkeypatch, testloop, numiter, xv):
     """StatSetup results"""
+    measure = CountStore()
     tempdir = '/not/exist'
 
+    monkeypatch.setattr(cli, 'measure', measure)
     monkeypatch.setattr(cli, 'pathjoin', fake_pathjoin)
     for m in [cli, stat]:
         monkeypatch.setattr(m, 'create_engine', fake_create_engine)
@@ -90,19 +93,20 @@ def test_statsetup_results(monkeypatch, testloop, numiter, xv):
         tempdir=tempdir,
         periods=1,
         export=dict(type=xv, targetdir=tempdir),
-        qmaxsize=1000
+        qmaxsize=1000,
+        flushwait=to_timedelta(0, unit='s')
     )
     config = dict(loadlimit=llconfig)
-    state = Namespace(write=cli.Printer())
+    state = Namespace(write=cli.Printer(), progressbar={})
 
     # Create coro to time
-    @timecoro(name='churn')
+    @measure(name='churn')
     async def churn(i):
         """Do nothing"""
         await asyncio.sleep(0)
 
     # Create second coro to time
-    @timecoro(name='churn_two')
+    @measure(name='churn_two')
     async def churn2(i):
         """Do nothing"""
         await asyncio.sleep(0)
@@ -112,7 +116,6 @@ def test_statsetup_results(monkeypatch, testloop, numiter, xv):
         async for i in aiter(range(numiter)):
             await churn(i)
             await churn2(i)
-        await stat.timedata.join()
         await channel.shutdown.send(0)
 
     statsetup = StatSetup(config, state)
@@ -150,6 +153,8 @@ class FakeDataFrame:
     def __init__(self, *args, **kwargs):
         self._args = args
         self._kwargs = kwargs
+        if 'index_label' in kwargs:
+            self.index = Namespace(names=kwargs['index_label'])
 
     def to_csv(self, *args, **kwargs):
         """Simulate sending to csv"""

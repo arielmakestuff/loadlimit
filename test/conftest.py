@@ -23,7 +23,6 @@ import pytest
 import loadlimit.channel as channel
 import loadlimit.cli as cli
 import loadlimit.core as core
-import loadlimit.event as event
 import loadlimit.stat as stat
 
 
@@ -79,8 +78,7 @@ def fake_shutdown_channel(monkeypatch):
 @pytest.fixture
 def fake_timedata_channel(monkeypatch):
     """Setup fake timedata channel"""
-    fake_timedata = event.MultiEvent(event.RunFirst)
-    fake_timedata = channel.DataChannel()
+    fake_timedata = channel.DataChannel(name='fake_timedata')
     fake_timedata(stat.updateperiod, anchortype=channel.AnchorType.first)
     monkeypatch.setattr(stat, 'timedata', fake_timedata)
 

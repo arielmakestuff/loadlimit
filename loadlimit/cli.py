@@ -39,9 +39,10 @@ from . import channel
 from . import stat
 from .core import BaseLoop, Client
 from .importhook import TaskImporter
-from .stat import (flushtosql, flushtosql_shutdown, Period, SQLTimeSeries,
-                   SQLTotal, SQLTotalError, SQLTotalFailure, TimeSeries, Total,
-                   TotalError, TotalFailure)
+from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
+                   SendTimeData, SQLTimeSeries, SQLTotal, SQLTotalError,
+                   SQLTotalFailure, TimeSeries, Total, TotalError,
+                   TotalFailure)
 from .util import aiter, LogLevel, Namespace, TZ_UTC
 
 
@@ -562,15 +563,17 @@ class StatSetup:
         self._calcobj = (None, None)
         self._results = None
         self._statsdict = None
+        self._countstore = None
 
     def __enter__(self):
         config = self._config
         state = self._state
         llconfig = config['loadlimit']
         self._statsdict = statsdict = Period()
+        self._countstore = countstore = measure
 
         if llconfig['cache']['type'] == 'memory':
-            self._calcobj = tuple(c(statsdict=statsdict)
+            self._calcobj = tuple(c(statsdict=statsdict, countstore=countstore)
                                   for c in [Total, TimeSeries, TotalError,
                                             TotalFailure])
             state.sqlengine = None
@@ -579,7 +582,7 @@ class StatSetup:
             connstr = 'sqlite:///{}'.format(cachefile)
             state.sqlengine = engine = create_engine(connstr)
             self._calcobj = tuple(
-                c(statsdict=statsdict, sqlengine=engine)
+                c(statsdict=statsdict, sqlengine=engine, countstore=countstore)
                 for c in [SQLTotal, SQLTimeSeries, SQLTotalError,
                           SQLTotalFailure])
 
@@ -595,12 +598,12 @@ class StatSetup:
     def __exit__(self, errtype, err, errtb):
         calcobj = self._calcobj
         total, timeseries, error, failure = calcobj
-        statsdict = self._statsdict
+        countstore = self._countstore
         with ExitStack() as stack:
             # Set timeseries periods
             timeseries.vals.periods = self._config['loadlimit']['periods']
 
-            if statsdict.start_date is None:
+            if countstore.start_date is None:
                 return
 
             # Enter results contexts
@@ -638,10 +641,19 @@ class StatSetup:
 
     def startevent(self):
         """Start events"""
-        qmaxsize = self._config['loadlimit']['qmaxsize']
+        countstore = self._countstore
+        llconfig = self._config['loadlimit']
+        qmaxsize = llconfig['qmaxsize']
         engine = self._state.sqlengine
 
+        # Schedule SendTimeData
+        flushwait = llconfig['flushwait']
+        send = SendTimeData(countstore, flushwait=flushwait,
+                            channel=stat.timedata)
+        asyncio.ensure_future(send())
+
         # Assign shutdown tasks
+        channel.shutdown(send.shutdown, anchortype=channel.AnchorType.first)
         channel.shutdown(stat.timedata.shutdown)
         channel.shutdown(cleanup.shutdown)
 

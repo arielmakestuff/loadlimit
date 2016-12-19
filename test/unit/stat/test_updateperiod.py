@@ -15,14 +15,14 @@
 import asyncio
 
 # Third-party imports
-from pandas import DataFrame, Series
+from pandas import DataFrame, Series, to_timedelta
 import pytest
 
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
 import loadlimit.stat as stat
-from loadlimit.stat import timecoro, Total
+from loadlimit.stat import CountStore, Failure, SendTimeData, Total
 from loadlimit.util import aiter
 
 
@@ -40,19 +40,20 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 # ============================================================================
 
 
-def test_updateperiod(testloop):
+def test_updateperiod_coro(testloop):
     """updateperiod updates statsdict with timeseries data points"""
 
-    results = Total()
+    measure = CountStore()
+    results = Total(countstore=measure)
 
     # Create coro to time
-    @timecoro(name='churn')
+    @measure(name='churn')
     async def churn(i):
         """Do nothing"""
         await asyncio.sleep(0)
 
     # Create second coro to time
-    @timecoro(name='churn_two')
+    @measure(name='churn_two')
     async def churn2(i):
         """Do nothing"""
         await asyncio.sleep(0)
@@ -64,11 +65,19 @@ def test_updateperiod(testloop):
             await churn2(i)
         await channel.shutdown.send(0)
 
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=stat.timedata)
+
     # Add to shutdown channel
+    channel.shutdown(send.shutdown)
     channel.shutdown(stat.timedata.shutdown)
 
     # Run all the tasks
     with BaseLoop() as main:
+
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
 
         # Start every event, and ignore events that don't have any tasks
         stat.timedata.open()
@@ -90,22 +99,40 @@ def test_updateperiod(testloop):
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_adderror(exctype, testloop):
     """updateperiod adds errors to statsdict"""
+    measure = CountStore()
     statsdict = stat.Period()
     timedata = stat.timedata
     err = exctype(42)
     key = 'hello'
 
-    @timecoro(name=key)
+    @measure(name=key)
     async def coro():
         raise err
 
     async def runme():
         await coro()
-        await timedata.join()
+        await channel.shutdown.send(0)
 
-    timedata.open()
-    timedata.start(statsdict=statsdict)
-    testloop.run_until_complete(runme())
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=timedata)
+
+    # Add to shutdown channel
+    channel.shutdown(send.shutdown)
+    channel.shutdown(timedata.shutdown)
+
+    # Run all the tasks
+    with BaseLoop() as main:
+
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
+
+        # Start every event, and ignore events that don't have any tasks
+        timedata.open()
+        timedata.start(asyncfunc=False, statsdict=statsdict)
+
+        asyncio.ensure_future(runme())
+        main.start()
 
     assert statsdict.numerror(key) == 1
 
@@ -123,22 +150,40 @@ def test_adderror(exctype, testloop):
 
 def test_addfailure(testloop):
     """updateperiod adds errors to statsdict"""
+    measure = CountStore()
     statsdict = stat.Period()
     timedata = stat.timedata
-    fail = stat.Failure(42)
+    fail = Failure(42)
     key = 'hello'
 
-    @timecoro(name=key)
+    @measure(name=key)
     async def coro():
         raise fail
 
     async def runme():
         await coro()
-        await timedata.join()
+        await channel.shutdown.send(0)
 
-    timedata.open()
-    timedata.start(statsdict=statsdict)
-    testloop.run_until_complete(runme())
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=timedata)
+
+    # Add to shutdown channel
+    channel.shutdown(send.shutdown)
+    channel.shutdown(timedata.shutdown)
+
+    # Run all the tasks
+    with BaseLoop() as main:
+
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
+
+        # Start every event, and ignore events that don't have any tasks
+        timedata.open()
+        timedata.start(asyncfunc=False, statsdict=statsdict)
+
+        asyncio.ensure_future(runme())
+        main.start()
 
     assert statsdict.numfailure(key) == 1
 

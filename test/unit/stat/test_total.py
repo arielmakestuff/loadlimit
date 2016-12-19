@@ -15,7 +15,6 @@
 
 # Third-party imports
 from pandas import Timestamp, to_timedelta
-import pytest
 
 # Local imports
 import loadlimit.stat as stat
@@ -28,7 +27,10 @@ import loadlimit.stat as stat
 
 def test_noresults(statsdict):
     """Set results to None if no results"""
-    with stat.Total(statsdict=statsdict) as result:
+    measure = stat.CountStore()
+    measure.start_date = s = Timestamp.now(tz='UTC')
+    measure.end_date = s + to_timedelta(5, unit='s')
+    with stat.Total(statsdict=statsdict, countstore=measure) as result:
         pass
 
     assert result.vals.results is None
@@ -41,8 +43,11 @@ def test_noresults(statsdict):
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
+    measure = stat.CountStore()
+    measure.start_date = s = Timestamp.now(tz='UTC')
+    measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'
-    calc = stat.Total(statsdict=statsdict)
+    calc = stat.Total(statsdict=statsdict, countstore=measure)
     calc.__enter__()
     calc.calculate(key, [], [], [])
 
@@ -58,9 +63,10 @@ def test_calculate_nodata(statsdict):
 
 def test_export_nodata(monkeypatch, statsdict):
     """Do not call exportdf() if there are no results"""
-
-    key = '42'
-    calc = stat.Total(statsdict=statsdict)
+    measure = stat.CountStore()
+    measure.start_date = s = Timestamp.now(tz='UTC')
+    measure.end_date = s + to_timedelta(5, unit='s')
+    calc = stat.Total(statsdict=statsdict, countstore=measure)
     called = False
 
     def fake_exportdf(self, df, name, export_type, exportdir):

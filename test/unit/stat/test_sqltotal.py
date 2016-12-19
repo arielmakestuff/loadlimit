@@ -14,9 +14,10 @@
 # Stdlib imports
 
 # Third-party imports
+from pandas import DataFrame, Timestamp, to_timedelta
 
 # Local imports
-from loadlimit.stat import SQLTotal
+from loadlimit.stat import CountStore, SQLTotal
 
 
 # ============================================================================
@@ -26,10 +27,14 @@ from loadlimit.stat import SQLTotal
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
+    measure = CountStore()
+    measure.start_date = s = Timestamp.now(tz='UTC')
+    measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'
-    calc = SQLTotal(statsdict=statsdict)
+    calc = SQLTotal(statsdict=statsdict, countstore=measure)
+    empty = DataFrame()
     calc.__enter__()
-    calc.calculate(key, [], [], [])
+    calc.calculate(key, empty, empty, empty)
     results = calc.vals.results
     assert results
     assert results[key] is None

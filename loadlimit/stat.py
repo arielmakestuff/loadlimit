@@ -17,16 +17,15 @@ from asyncio import Lock
 from copy import deepcopy
 from hashlib import sha1
 from collections import defaultdict, namedtuple
-from functools import partial, wraps
+from functools import wraps
 from itertools import chain, count
 from pathlib import Path
 from time import mktime, perf_counter
 
 # Third-party imports
-import numpy as np
+# import numpy as np
 import pandas as pd
-from pandas import (DataFrame, read_sql_table, Series, Timedelta, Timestamp,
-                    to_timedelta)
+from pandas import (DataFrame, read_sql_table, Series, Timedelta)
 from pandas.io import sql
 from sqlalchemy import create_engine
 
@@ -241,6 +240,7 @@ class SendTimeData:
     async def shutdown(self, *args, **kwargs):
         """Shutdown the coro"""
         self.stop = True
+        await self._channel.join()
 
 
 # ============================================================================
@@ -372,50 +372,6 @@ class Period(defaultdict):
 
 
 # ============================================================================
-# timecoro decorator
-# ============================================================================
-
-
-def timecoro(corofunc=None, *, name=None):
-    """Records the start and stop time of the given corofunc"""
-    if name is None:
-        raise ValueError('name not given')
-    elif not isinstance(name, str):
-        msg = 'name expected str, got {} instead'.format(type(name).__name__)
-        raise TypeError(msg)
-
-    def deco(corofunc):
-        """Function to decorate corofunc"""
-
-        @wraps(corofunc)
-        async def wrapper(*args, **kwargs):
-            """Record start and stop time"""
-            error = None
-            failure = None
-            start = now()
-            try:
-                await corofunc(*args, **kwargs)
-            except Failure as e:
-                failure = str(e.args[0])
-            except Exception as e:
-                error = e
-            finally:
-                end = now()
-
-            # Call timedata event with the start and end times
-            data = Namespace(eventid=name, start=start, end=end, error=error,
-                             failure=failure)
-            await timedata.send(data)
-
-        return wrapper
-
-    if corofunc is None:
-        return deco
-
-    return deco(corofunc)
-
-
-# ============================================================================
 # Update stats coroutine
 # ============================================================================
 
@@ -427,27 +383,41 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
     This is the anchor coro func for the timedata event.
 
     """
-    name = data.eventid
-    start, end = Timestamp(data.start), Timestamp(data.end)
+    name = data.name
+    end = data.end
+    delta = data.delta
+    rate = data.rate
     error = data.error
     failure = data.failure
-    delta = end - start
     with (await statsdict.lock):
-        if statsdict.start_date is None:
-            statsdict.start_date = start
-        statsdict.end_date = end
-
         # In-memory dict
-        if error is not None:
-            se = Series([start, end, delta, repr(error)],
-                        index=['start', 'end', 'delta', 'error'])
-            statsdict.adderror(name, se)
-        elif failure is not None:
-            sf = Series([start, end, delta, str(failure)],
-                        index=['start', 'end', 'delta', 'failure'])
-            statsdict.addfailure(name, sf)
-        else:
-            s = Series([start, end, delta], index=['start', 'end', 'delta'])
+        if error:
+            async for k, c in aiter(error.items()):
+                if c == 0:
+                    continue
+                error_rate = (c / delta) if delta > 0 else 0
+                error_response = (0 if error_rate == 0
+                                  else (1 / error_rate) * 1000)
+                se = Series([end, error_rate, error_response, k, c],
+                            index=['end', 'rate', 'response', 'error',
+                                   'count'])
+                statsdict.adderror(name, se)
+        if failure:
+            async for k, c in aiter(failure.items()):
+                if c == 0:
+                    continue
+                failure_rate = (c / delta) if delta > 0 else 0
+                failure_response = (0 if failure_rate == 0
+                                    else (1 / failure_rate) * 1000)
+                sf = Series([end, failure_rate, failure_response, k, c],
+                            index=['end', 'rate', 'response', 'failure',
+                                   'count'])
+                statsdict.addfailure(name, sf)
+
+        response = (1 / rate) * 1000 if rate > 0 else 0
+        if rate or response:
+            s = Series([end, rate, response],
+                       index=['end', 'rate', 'response'])
             statsdict.addtimedata(name, s)
 
 
@@ -461,14 +431,14 @@ class FlushToSQL:
                 return
 
             with sqlengine.begin() as conn:
-
                 async for k in aiter(statsdict):
                     # Generate table name
                     curkey = sha1(k.encode('utf-8')).hexdigest()
                     for n in ['flushdata', 'flusherror', 'flushfailure']:
                         func = getattr(self, n)
                         func(statsdict, k, sqltbl, curkey, sqlengine, conn)
-        await statsdict.aclearvals()
+
+            await statsdict.aclearvals()
 
     def countrows(self, sqlengine, sqlconn, tblname):
         """Retrieve number of rows from the given table"""
@@ -482,14 +452,11 @@ class FlushToSQL:
     def mktimeseries(self, data):
         """Create list of timeseries data"""
         to_datetime = pd.to_datetime
-        timedelta64 = np.timedelta64
         slist = []
         for s in data:
             converted = list(s)
-            val = [to_datetime(s[0].value),
-                   to_datetime(s[1].value),
-                   s[2] / timedelta64(1, 'ns')]
-            val.extend(converted[3:])
+            val = [to_datetime(s[0].value)]
+            val.extend(converted[1:])
             slist.append(val)
         return slist
 
@@ -501,17 +468,17 @@ class FlushToSQL:
         # Convert each series to use naive datetimes and nanosecond
         # int/float values instead of timedeltas
         slist = self.mktimeseries(statsdict.timedata(key))
+        if not slist:
+            return
         index = list(range(startind, startind + len(slist)))
         df = DataFrame(slist, index=index,
-                       columns=['start', 'end', 'delta'])
+                       columns=['end', 'rate', 'response'])
         startind = startind + len(df)
         df.to_sql(curname, sqlconn, if_exists='append')
 
     def flusherror(self, statsdict, key, sqltbl, namekey, sqlengine, sqlconn):
         """Flush error data"""
-        # Convert each exception into a string
-        slist = [s[:3] + [str(s[3])] for s in
-                 self.mktimeseries(statsdict.error(key))]
+        slist = self.mktimeseries(statsdict.error(key))
         if not slist:
             return
         curname = '{}_error_{}'.format(sqltbl, namekey)
@@ -519,7 +486,7 @@ class FlushToSQL:
 
         index = list(range(startind, startind + len(slist)))
         df = DataFrame(slist, index=index,
-                       columns=['start', 'end', 'delta', 'error'])
+                       columns=['end', 'rate', 'response', 'error', 'count'])
         startind = startind + len(df)
         df.to_sql(curname, sqlconn, if_exists='append')
 
@@ -534,7 +501,7 @@ class FlushToSQL:
 
         index = list(range(startind, startind + len(slist)))
         df = DataFrame(slist, index=index,
-                       columns=['start', 'end', 'delta', 'failure'])
+                       columns=['end', 'rate', 'response', 'failure', 'count'])
         startind = startind + len(df)
         df.to_sql(curname, sqlconn, if_exists='append')
 
@@ -561,8 +528,9 @@ async def flushtosql_shutdown(exitcode, *, statsdict=None, sqlengine=None,
 class Result:
     """Calculate result DataFrame from a Period"""
 
-    def __init__(self, statsdict=None):
+    def __init__(self, statsdict=None, countstore=None):
         self._statsdict = Period() if statsdict is None else statsdict
+        self._countstore = measure if countstore is None else countstore
         self._vals = Namespace()
 
     def __iter__(self):
@@ -572,10 +540,10 @@ class Result:
 
     def __enter__(self):
         """Start calculating the result"""
-        statsdict = self.statsdict
+        countstore = self._countstore
         vals = self.vals
-        vals.start = statsdict.start_date
-        vals.end = statsdict.end_date
+        vals.start = countstore.start_date
+        vals.end = countstore.end_date
         return self
 
     def __exit__(self, errtype, err, errtb):
@@ -607,7 +575,7 @@ class Result:
         exportdir = Path(exportdir)
         if export_type == 'csv':
             path = exportdir / '{}.{}'.format(filename, 'csv')
-            df.to_csv(str(path), index_label='Name')
+            df.to_csv(str(path), index_label=df.index.names)
         else:  # export_type == 'sqlite':
             path = str(exportdir / '{}.{}'.format(filename, 'db'))
             sqlengine = create_engine('sqlite:///{}'.format(path))
@@ -618,6 +586,11 @@ class Result:
     def statsdict(self):
         """Return stored period statsdict"""
         return self._statsdict
+
+    @property
+    def countstore(self):
+        """Return stored countstore"""
+        return self._countstore
 
     @property
     def vals(self):
@@ -644,48 +617,46 @@ class Total(Result):
     def __exit__(self, errtype, err, errtb):
         """Finish calculations and save result"""
         vals = self.vals
+        # countstore = self._countstore
         results = vals.results
-        dfindex = list(sorted(results, key=lambda k: k))
-        data = [results[v] for v in dfindex if results[v] is not None]
+        dfindex = (k for k, v in results.items() if v is not None)
+        dfindex = list(sorted(dfindex, key=lambda k: k))
+        # dfindex = list(sorted(results, key=lambda k: k))
+        # data = [results[v] for v in dfindex if results[v] is not None]
+        data = [results[v] for v in dfindex]
         if not data:
             vals.results = None
             return
         df = DataFrame(data, index=dfindex)
-        delta = vals.delta
-        totseries = [df['Total'].sum(), delta.median(),
-                     delta.mean(), df['Min'].min(), df['Max'].max(),
-                     df['Rate'].sum()]
-        result = [totseries[0]] + totseries[3:]
-        result[1:1] = [v.total_seconds() * 1000 for v in totseries[1:3]]
+        total = df['Total'].sum()
+        result = [total, df['Median'].median(), df['Average'].mean(),
+                  df['Min'].min(), df['Max'].max(), total / vals.duration]
         result = DataFrame([Series(result, index=vals.index)],
                            index=['Totals'])
         vals.results = df = df.append(result)
+        df.index.names = ['Name']
 
     def calculate(self, name, data, error, failure):
         """Calculate results"""
         vals = self.vals
+        countstore = self.countstore
 
         # Number of iterations
+        # This is a list of pandas.Series
+        total = countstore[name].success
         numiter = len(data)
         if numiter == 0:
             vals.results[name] = None
             return
 
-        # Create dataframe out of the timeseries and get only the delta field
+        # Create dataframe out of the timeseries and get only the response
+        # field
         df = DataFrame(data, index=list(range(numiter)))
-        delta = df['delta']
-        if vals.delta is None:
-            vals.delta = delta
-        else:
-            vals.delta.append(delta, ignore_index=True)
+        delta = df['response']
 
         # Calculate stats
-        r = [numiter]
-        for val in [delta.median(), delta.mean(), delta.min(),
-                    delta.max()]:
-            r.append(val.total_seconds() * 1000)
-        duration = delta.sum().total_seconds()
-        r.append(numiter / duration)
+        r = [total, delta.median(), delta.mean(), delta.min(), delta.max(),
+             total / vals.duration]
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
@@ -704,11 +675,11 @@ class TimeSeries(Result):
         vals = self.vals
 
         # Dates
-        start = vals.start
-        end = vals.end
+        # start = vals.start
+        # end = vals.end
 
-        date_array = np.linspace(start.value, end.value, vals.periods)
-        vals.daterange = pd.to_datetime(date_array)
+        # date_array = np.linspace(start.value, end.value, vals.periods)
+        # vals.daterange = pd.to_datetime(date_array)
 
         vals.response_result = {}
         vals.rate_result = {}
@@ -719,27 +690,30 @@ class TimeSeries(Result):
         vals = self.vals
         response_result = vals.response_result
         rate_result = vals.rate_result
+        df_response = None
+        df_rate = None
 
         # Create response dataframe
-        dfindex = list(sorted(response_result, key=lambda k: k))
-        data = [response_result[name] for name in dfindex
-                if response_result[name] is not None]
-        df_response = (DataFrame(data, index=dfindex).fillna(0) if data
-                       else None)
+        dfindex = (k for k, v in response_result.items() if v is not None)
+        dfindex = list(sorted(dfindex, key=lambda k: k))
+        data = [response_result[name] for name in dfindex]
+        if data:
+            # df_response = (DataFrame(data, index=dfindex).fillna(0) if data
+            #                else None)
+            df_response = DataFrame(data, index=dfindex)
+            df_response.index.names = ['Name']
 
-        # Create rate dataframe
-        data = [rate_result[name] for name in dfindex
-                if rate_result[name] is not None]
-        df_rate = DataFrame(data, index=dfindex).fillna(0) if data else None
+            # Create rate dataframe
+            data = [rate_result[name] for name in dfindex]
+            # df_rate = DataFrame(data, index=dfindex).fillna(0) if data else
+            # None
+            df_rate = DataFrame(data, index=dfindex)
+            df_rate.index.names = ['Name']
 
         # Return both dataframes
         vals.results = (df_response, df_rate)
         for n in ['response_result', 'rate_result']:
             delattr(vals, n)
-
-    def __call__(self, *, periods=1):
-        self.vals.periods = periods
-        return super().__call__()
 
     def calculate(self, name, data, error, failure):
         """Calculate results"""
@@ -749,6 +723,7 @@ class TimeSeries(Result):
         rate = []
 
         # Number of iterations
+        # total = countstore[name].success
         numiter = len(data)
         if numiter == 0:
             vals.response_result[name] = None
@@ -758,22 +733,13 @@ class TimeSeries(Result):
         # Create dataframe out of the timeseries and get average response time
         # for each determined datetime period
         df = DataFrame(data, index=list(range(numiter)))
-        for d in vals.daterange:
-            d = Timestamp(d, tz='UTC')
-            delta = df.query('end <= @d')['delta']
-
-            # Average response times
-            avg_response = delta.mean().total_seconds() * 1000
-            response.append(avg_response)
-
-            # Iterations per second
-            duration = delta.sum().total_seconds()
-            iter_per_sec = 0 if duration <= 0 else len(delta) / duration
-            rate.append(iter_per_sec)
-
-        daterange = vals.daterange
-        vals.response_result[name] = Series(response, index=daterange)
-        vals.rate_result[name] = Series(rate, index=daterange)
+        daterange = df['end']
+        response = df['response']
+        response.index = daterange
+        rate = df['rate']
+        rate.index = daterange
+        vals.response_result[name] = response  # Series
+        vals.rate_result[name] = rate
 
     def export(self, export_type, exportdir):
         """Export total values"""
@@ -807,6 +773,7 @@ class GeneralError(Result):
         """Calculate results"""
         # data, error, failure = datatype
         vals = self.vals
+        # countstore = self.countstore
         errtype, errind = self.errtype
         data = datatype[errind]
 
@@ -819,9 +786,7 @@ class GeneralError(Result):
         # Create dataframe out of the timeseries and get only the error field
         df = DataFrame(data, index=list(range(numiter)))
         df.insert(0, 'name', [name] * len(df))
-        aggregate = {
-            errtype: 'count'
-        }
+        aggregate = {'count': 'sum'}
         result = df.groupby(['name', errtype]).agg(aggregate)
         result.columns = ['Total']
         result.index.names = ['Name', errtype.capitalize()]
@@ -860,8 +825,9 @@ class TotalFailure(GeneralError):
 class SQLResult:
     """Define iterating over values stored in an sql db"""
 
-    def __init__(self, statsdict=None, sqltbl='period', sqlengine=None):
-        super().__init__(statsdict)
+    def __init__(self, statsdict=None, countstore=None, sqltbl='period',
+                 sqlengine=None):
+        super().__init__(statsdict, countstore)
         vals = self.vals
         vals.sqltbl = sqltbl
         vals.sqlengine = sqlengine
@@ -889,10 +855,9 @@ class SQLResult:
         if not hastable:
             return None
         df = read_sql_table(tblname, sqlconn, index_col='index',
-                            parse_dates={'start': dict(utc=True),
-                                         'end': dict(utc=True)})
-        df['delta'] = (df['delta'].
-                       apply(partial(to_timedelta, unit='ns')))
+                            parse_dates={'end': dict(utc=True)})
+        # df['delta'] = (df['delta'].
+        #                apply(partial(to_timedelta, unit='ns')))
         return df
 
 
@@ -902,24 +867,19 @@ class SQLTotal(SQLResult, Total):
     def calculate(self, name, dfdata, dferror, dffailure):
         """Calculate results"""
         vals = self.vals
+        countstore = self.countstore
 
-        numiter = len(dfdata)
+        total = countstore[name].success
+        numiter = len(dfdata.index)
         if numiter == 0:
             vals.results[name] = None
             return
 
-        df = dfdata['delta']
-        if vals.delta is None:
-            vals.delta = df
-        else:
-            vals.delta.append(df, ignore_index=True)
+        delta = dfdata['response']
 
         # Calculate stats
-        r = [numiter]
-        for val in [df.median(), df.mean(), df.min(), df.max()]:
-            r.append(val.total_seconds() * 1000)
-        duration = df.sum().total_seconds()
-        r.append(0 if duration == 0 else numiter / duration)
+        r = [total, delta.median(), delta.mean(), delta.min(), delta.max(),
+             total / vals.duration]
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
@@ -930,7 +890,10 @@ class SQLTimeSeries(SQLResult, TimeSeries):
     def calculate(self, name, dfdata, dferror, dffailure):
         """Calculate results"""
         vals = self.vals
-        numiter = len(dfdata)
+
+        # Number of iterations
+        # total = countstore[name].success
+        numiter = len(dfdata.index)
         if numiter == 0:
             vals.response_result[name] = None
             vals.rate_result[name] = None
@@ -941,23 +904,15 @@ class SQLTimeSeries(SQLResult, TimeSeries):
 
         # Create dataframe out of the timeseries and get average response time
         # for each determined datetime period
-        startpoint = vals.start
-        for d in vals.daterange:
-            d = Timestamp(d, tz='UTC')
-            delta = dfdata.query('end <= @d')['delta']
-
-            # Average response times
-            avg_response = delta.mean().total_seconds() * 1000
-            response.append(avg_response)
-
-            # Iterations per second
-            duration = (d - startpoint).total_seconds()
-            iter_per_sec = 0 if duration <= 0 else len(delta) / duration
-            rate.append(iter_per_sec)
-
-        daterange = vals.daterange
-        vals.response_result[name] = Series(response, index=daterange)
-        vals.rate_result[name] = Series(rate, index=daterange)
+        # df = DataFrame(data, index=list(range(numiter)))
+        df = dfdata
+        daterange = df['end']
+        response = df['response']
+        response.index = daterange
+        rate = df['rate']
+        rate.index = daterange
+        vals.response_result[name] = response  # Series
+        vals.rate_result[name] = rate
 
 
 class SQLGeneralError:
@@ -974,9 +929,7 @@ class SQLGeneralError:
 
         # Create dataframe out of the timeseries and get only the error field
         df.insert(0, 'name', [name] * len(df))
-        aggregate = {
-            errtype: 'count'
-        }
+        aggregate = {'count': 'sum'}
         result = df.groupby(['name', errtype]).agg(aggregate)
         result.columns = ['Total']
         result.index.names = ['Name', errtype.capitalize()]

@@ -24,7 +24,7 @@ from sqlalchemy import create_engine
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
 import loadlimit.stat as stat
-from loadlimit.stat import SQLTotal, timecoro
+from loadlimit.stat import CountStore, SendTimeData, SQLTotal
 from loadlimit.util import aiter
 
 
@@ -59,30 +59,33 @@ def test_flushtosql(testloop, num):
     * there's still some data remaining that needs to be flushed to sql db
 
     """
+    measure = CountStore()
 
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
 
-    timetotal = SQLTotal(sqlengine=engine)
+    timetotal = SQLTotal(sqlengine=engine, countstore=measure)
 
     # Create coro to time
-    @timecoro(name='churn')
+    @measure(name='churn')
     async def churn(i):
         """Do nothing"""
-        print('CHURN')
         await asyncio.sleep(0)
 
     async def run():
         """run"""
-        print('START RUN')
         async for i in aiter(range(num)):
             await churn(i)
-        print('PRINT WAIT RECORDPERIOD')
-        await stat.timedata.join()
-        print('SHUTDOWN')
+        # await stat.timedata.join()
+        # await send.shutdown()
         await channel.shutdown.send(0)
 
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=stat.timedata)
+
     # Add to shutdown channel
+    channel.shutdown(send.shutdown)
     channel.shutdown(partial(stat.flushtosql_shutdown,
                              statsdict=timetotal.statsdict, sqlengine=engine))
     channel.shutdown(stat.timedata.shutdown)
@@ -93,16 +96,15 @@ def test_flushtosql(testloop, num):
     # Run all the tasks
     with BaseLoop() as main:
 
-        print('RECORD PERIOD SETUP')
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
+
         # Start every event, and ignore events that don't have any tasks
         stat.timedata.open()
         stat.timedata.start(asyncfunc=False, statsdict=timetotal.statsdict,
                             flushlimit=5, sqlengine=engine)
-        print('SCHED RUN')
         asyncio.ensure_future(run())
-        print('LOOP START')
         main.start()
-        print('LOOP END')
 
     assert timetotal.statsdict.numdata == 0
 
@@ -110,6 +112,37 @@ def test_flushtosql(testloop, num):
 
     assert isinstance(df, DataFrame)
     assert not df.empty
+
+
+# ============================================================================
+# Test FlushToSQL.flushdata()
+# ============================================================================
+
+
+@pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
+def test_flushdata_nodata(sqlengine, exctype):
+    """Store error data in sqlite db"""
+    statsdict = stat.Period()
+    key = 'hello'
+    namekey = 'world'
+    sqltbl = 'period'
+    tblname = '{}_{}'.format(sqltbl, namekey)
+    end = Timestamp.now(tz='UTC')
+    delta = to_timedelta(5, unit='s').total_seconds()
+    err = exctype(42)
+    data = Series([end, 1/5, delta, repr(err), 1],
+                  index=['end', 'rate', 'response', 'error', 'count'])
+
+    statsdict.adderror(key, data)
+
+    # Send data to sqlite db
+    with sqlengine.begin() as conn:
+        stat.flushtosql.flushdata(statsdict, key, sqltbl, namekey, sqlengine,
+                                  conn)
+
+    # Check sqlite db
+    with sqlengine.begin() as conn:
+        assert not sqlengine.dialect.has_table(conn, tblname)
 
 
 # ============================================================================
@@ -126,11 +159,10 @@ def test_flusherror(sqlengine, exctype):
     sqltbl = 'period'
     tblname = '{}_error_{}'.format(sqltbl, namekey)
     end = Timestamp.now(tz='UTC')
-    delta = to_timedelta(5, unit='s')
-    start = end - delta
+    delta = to_timedelta(5, unit='s').total_seconds()
     err = exctype(42)
-    data = Series([start, end, delta, repr(err)],
-                  index=['start', 'end', 'delta', 'error'])
+    data = Series([end, 1/5, delta, repr(err), 1],
+                  index=['end', 'rate', 'response', 'error', 'count'])
 
     statsdict.adderror(key, data)
 
@@ -143,8 +175,7 @@ def test_flusherror(sqlengine, exctype):
     with sqlengine.begin() as conn:
         assert sqlengine.dialect.has_table(conn, tblname)
         df = read_sql_table(tblname, conn, index_col='index',
-                            parse_dates={'start': dict(utc=True),
-                                         'end': dict(utc=True)})
+                            parse_dates={'end': dict(utc=True)})
         assert len(df.index) == 1
         assert df.iloc[0].error == repr(err)
 
@@ -162,11 +193,10 @@ def test_flushfailure(sqlengine):
     sqltbl = 'period'
     tblname = '{}_failure_{}'.format(sqltbl, namekey)
     end = Timestamp.now(tz='UTC')
-    delta = to_timedelta(5, unit='s')
-    start = end - delta
+    delta = to_timedelta(5, unit='s').total_seconds()
     err = stat.Failure(42)
-    data = Series([start, end, delta, str(err.args[0])],
-                  index=['start', 'end', 'delta', 'failure'])
+    data = Series([end, 1/5, delta, str(err.args[0]), 1],
+                  index=['end', 'rate', 'response', 'failure', 'count'])
 
     statsdict.addfailure(key, data)
 
@@ -179,8 +209,7 @@ def test_flushfailure(sqlengine):
     with sqlengine.begin() as conn:
         assert sqlengine.dialect.has_table(conn, tblname)
         df = read_sql_table(tblname, conn, index_col='index',
-                            parse_dates={'start': dict(utc=True),
-                                         'end': dict(utc=True)})
+                            parse_dates={'end': dict(utc=True)})
         assert len(df.index) == 1
         assert df.iloc[0].failure == str(err.args[0])
 
