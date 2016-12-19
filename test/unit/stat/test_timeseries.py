@@ -85,6 +85,13 @@ def test_return_two_df(testloop):
     assert len(ret) == 2
     assert all(isinstance(r, DataFrame) and not r.empty for r in ret)
 
+    # import pandas as pd
+    # pd.set_option('display.max_columns', 500)
+    # df_response, df_rate = ret
+    # print(df_response)
+    # print('-----------------------')
+    # print(df_rate)
+
 
 @pytest.mark.parametrize('num', [1000])
 def test_sqltimeseries(testloop, num):
@@ -140,6 +147,13 @@ def test_sqltimeseries(testloop, num):
     results = timeseries()
     assert len(results) == 2
     assert all(isinstance(r, DataFrame) and not r.empty for r in results)
+
+    # import pandas as pd
+    # pd.set_option('display.max_columns', 500)
+    # df_response, df_rate = results
+    # print(df_response)
+    # print('-----------------------')
+    # print(df_rate)
 
 
 # ============================================================================

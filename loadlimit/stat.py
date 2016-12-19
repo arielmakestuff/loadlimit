@@ -16,7 +16,7 @@ import asyncio
 from asyncio import Lock
 from copy import deepcopy
 from hashlib import sha1
-from collections import defaultdict, namedtuple
+from collections import defaultdict, namedtuple, OrderedDict
 from functools import wraps
 from itertools import chain, count
 from pathlib import Path
@@ -696,19 +696,29 @@ class TimeSeries(Result):
         # Create response dataframe
         dfindex = (k for k, v in response_result.items() if v is not None)
         dfindex = list(sorted(dfindex, key=lambda k: k))
-        data = [response_result[name] for name in dfindex]
+        data = OrderedDict()
+        for name in dfindex:
+            data[name] = response_result[name]
+        # data = [response_result[name] for name in dfindex]
         if data:
             # df_response = (DataFrame(data, index=dfindex).fillna(0) if data
             #                else None)
-            df_response = DataFrame(data, index=dfindex)
-            df_response.index.names = ['Name']
+            # df_response = DataFrame(data, index=dfindex)
+            df_response = DataFrame(data)
+            # df_response.index.names = ['Name']
+            df_response.index.names = ['Timestamp']
 
             # Create rate dataframe
-            data = [rate_result[name] for name in dfindex]
+            data = OrderedDict()
+            for name in dfindex:
+                data[name] = rate_result[name]
+            # data = [rate_result[name] for name in dfindex]
             # df_rate = DataFrame(data, index=dfindex).fillna(0) if data else
             # None
-            df_rate = DataFrame(data, index=dfindex)
-            df_rate.index.names = ['Name']
+            # df_rate = DataFrame(data, index=dfindex)
+            df_rate = DataFrame(data)
+            # df_rate.index.names = ['Name']
+            df_rate.index.names = ['Timestamp']
 
         # Return both dataframes
         vals.results = (df_response, df_rate)
