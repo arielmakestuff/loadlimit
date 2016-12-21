@@ -135,11 +135,12 @@ class CountStore(defaultdict):
                 """Measure coroutine runtime"""
                 count = self[name]
                 start = self.start
+                ret = None
                 if start is None:
                     self.start_date = now()
                     self.start = start = perf_counter()
                 try:
-                    await corofunc(*args, **kwargs)
+                    ret = await corofunc(*args, **kwargs)
                 except Failure as e:
                     failure = str(e.args[0])
                     count.failure[failure] += 1
@@ -150,6 +151,7 @@ class CountStore(defaultdict):
                 finally:
                     self.end = perf_counter()
                     self.end_date = now()
+                return ret
 
             return wrapper
 
