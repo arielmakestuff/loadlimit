@@ -292,5 +292,52 @@ async def test_countstore_measure_error(exctype):
 
 
 # ============================================================================
+# Test CountStore.reset()
+# ============================================================================
+
+
+def test_countstore_reset_empty():
+    """Does not raise an error on an empty CountStore"""
+    c = CountStore()
+    c.reset()
+
+
+def test_countstore_reset_dates():
+    """Dates attrs are all set to None"""
+    c = CountStore()
+    c.start = 42
+    c.start_date = now()
+    c.end = 52
+    c.end_date = now()
+
+    c.reset()
+
+    assert c.start is None
+    c.start_date is None
+    c.end is None
+    c.end_date is None
+
+
+def test_countstore_reset_clear():
+    """The dict is cleared"""
+    c = CountStore()
+    c['hello'].success = 9001
+    c['hello'].error['first'] = 500
+    c['hello'].failure['second'] = 500
+
+    c['world'].success = 19001
+    c['world'].error['first'] = 1500
+    c['world'].failure['second'] = 1500
+
+    assert c
+    assert len(c) == 2
+
+    c.reset()
+
+    assert not c
+    assert len(c) == 0
+
+
+# ============================================================================
 #
 # ============================================================================

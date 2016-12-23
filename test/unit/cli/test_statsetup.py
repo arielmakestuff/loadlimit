@@ -66,7 +66,8 @@ def test_statsetup_context(monkeypatch):
         periods=8
     )
     config = dict(loadlimit=llconfig)
-    state = Namespace(write=cli.Printer())
+    state = Namespace(write=cli.Printer(),
+                      countstore=CountStore())
 
     with StatSetup(config, state) as statsetup:
         pass
@@ -97,7 +98,8 @@ def test_statsetup_results(monkeypatch, testloop, numiter, xv):
         flushwait=to_timedelta(0, unit='s')
     )
     config = dict(loadlimit=llconfig)
-    state = Namespace(write=cli.Printer(), progressbar={})
+    state = Namespace(write=cli.Printer(), progressbar={},
+                      countstore=measure)
 
     # Create coro to time
     @measure(name='churn')

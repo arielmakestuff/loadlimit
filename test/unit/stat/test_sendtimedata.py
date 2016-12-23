@@ -14,6 +14,7 @@
 # Stdlib imports
 import asyncio
 from copy import deepcopy
+from time import perf_counter
 
 # Third-party imports
 from pandas import to_timedelta
@@ -195,6 +196,23 @@ async def test_mkdata_noenddate():
     assert data.end.floor('D') == curdate.floor('D')
 
 
+@pytest.mark.parametrize('val', [True, False])
+@pytest.mark.asyncio
+async def test_mkdata_reset(val):
+    """Include given reset value in return value"""
+    key = 'hello'
+    c = CountStore()
+    c[key].success += 42
+    count = c[key]
+    prevcount = deepcopy(count)
+    prevcount.success -= 10
+    s = SendTimeData(c)
+
+    data = await s.mkdata(2, None, key, count, prevcount, reset=val)
+    assert hasattr(data, 'reset')
+    assert data.reset is val
+
+
 # ============================================================================
 # Test send
 # ============================================================================
@@ -269,6 +287,57 @@ async def test_send_diff():
     assert checkdata.rate == 5
     assert checkdata.error == count.error
     assert checkdata.failure == count.failure
+
+
+@pytest.mark.usefixtures('fake_timedata')
+@pytest.mark.asyncio
+async def test_send_reset():
+    """Set reset arg"""
+    key = 'hello'
+    delta = 2
+
+    prev = CountStore()
+    prev.end_date = now()
+
+    snap = deepcopy(prev)
+    snap.start = perf_counter()
+    count = snap[key]
+    count.success += 10
+    count.error['what'] += 1
+    count.failure['now'] += 1
+    snap.end_date = now() + to_timedelta(delta, 's')
+    channel = stat.timedata
+    s = SendTimeData(snap, flushwait=to_timedelta(0, unit='s'),
+                     channel=channel)
+    checkdata = []
+
+    @channel
+    async def check(data):
+        if not checkdata:
+            snap.reset()
+        checkdata.append(data)
+
+    with channel.open() as r:
+        r.start()
+        await s.send(delta, snap, prev)
+        assert s._start is not None
+        await channel.join()
+
+        # Simulate getting data
+        snap.start = perf_counter()
+        count = snap[key]
+        count.success += 10
+        count.error['what'] += 1
+        count.failure['now'] += 1
+        snap.end_date = now() + to_timedelta(delta, 's')
+
+        await s.send(delta, snap, prev)
+        await channel.join()
+
+    assert all(isinstance(d, CountStoreData) for d in checkdata)
+    assert len(checkdata) == 2
+    assert checkdata[0].reset is False
+    assert checkdata[1].reset is True
 
 
 # ============================================================================

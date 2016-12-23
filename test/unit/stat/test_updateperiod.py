@@ -195,5 +195,69 @@ def test_addfailure(testloop):
 
 
 # ============================================================================
+# Tests reset
+# ============================================================================
+
+
+def test_updateperiod_reset(testloop):
+    """updateperiod clears statsdict if it gets a reset"""
+
+    measure = CountStore()
+    results = Total(countstore=measure)
+
+    # Create coro to time
+    @measure(name='churn')
+    async def churn(i):
+        """Do nothing"""
+        await asyncio.sleep(0)
+
+    # Create second coro to time
+    @measure(name='churn_two')
+    async def churn2(i):
+        """Do nothing"""
+        await asyncio.sleep(0)
+
+    async def run():
+        """run"""
+        async for i in aiter(range(2)):
+            await churn(i)
+            await churn2(i)
+            if i == 0:
+                measure.reset()
+        await channel.shutdown.send(0)
+
+    # Setup SendTimeData
+    send = SendTimeData(measure, flushwait=to_timedelta(0, unit='s'),
+                        channel=stat.timedata)
+
+    # Add to shutdown channel
+    channel.shutdown(send.shutdown)
+    channel.shutdown(stat.timedata.shutdown)
+
+    # Run all the tasks
+    with BaseLoop() as main:
+
+        # Schedule SendTimeData coro
+        asyncio.ensure_future(send())
+
+        # Start every event, and ignore events that don't have any tasks
+        stat.timedata.open()
+        stat.timedata.start(asyncfunc=False, statsdict=results.statsdict)
+
+        asyncio.ensure_future(run())
+        main.start()
+
+    df = results()
+    assert isinstance(df, DataFrame)
+    assert not df.empty
+    assert len(df.index) == 3
+    for i in range(2):
+        assert df.iloc[i].Total == 1
+
+    # Summary line should be sum of totals for churn and churn2
+    assert df.iloc[2].Total == 2
+
+
+# ============================================================================
 #
 # ============================================================================

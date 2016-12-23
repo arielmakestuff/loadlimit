@@ -41,7 +41,7 @@ from .util import aiter, Namespace, now
 
 CountStoreData = namedtuple('CountStoreData',
                             ['name', 'end', 'delta', 'rate', 'error',
-                             'failure'])
+                             'failure', 'reset'])
 
 
 # ============================================================================
@@ -160,6 +160,14 @@ class CountStore(defaultdict):
 
         return deco(corofunc)
 
+    def reset(self):
+        """Reset all counts to starting values"""
+        self.start = None
+        self.start_date = None
+        self.end = None
+        self.end_date = None
+        self.clear()
+
 
 measure = CountStore()
 
@@ -181,11 +189,13 @@ class SendTimeData:
         self._flushwait = (2 if flushwait is None else
                            flushwait.total_seconds())
         self._channel = timedata if channel is None else channel
+        self._start = None
 
     async def __call__(self):
         """Store timedata"""
         wait = self._flushwait
         countstore = self._countstore
+        self._start = countstore.start
         snapshot = None
         prevsnapshot = None
         sendfunc = self.send
@@ -206,14 +216,22 @@ class SendTimeData:
     async def send(self, delta, snapshot, prevsnapshot):
         """Send snapshot diff"""
         mkdata = self.mkdata
-        end_date = self._countstore.end_date
+        end_date = snapshot.end_date
         channel = self._channel
+        reset = False
+        if self._start is None:
+            self._start = snapshot.start
+        elif snapshot.start != self._start:
+            reset = True
+            self._start = snapshot.start
         async for k, count in aiter(snapshot.items()):
             prevcount = None if prevsnapshot is None else prevsnapshot[k]
-            data = await mkdata(delta, end_date, k, count, prevcount)
+            data = await mkdata(delta, end_date, k, count, prevcount,
+                                reset=reset)
             await channel.send(data)
 
-    async def mkdata(self, delta, end_date, key, count, prevcount):
+    async def mkdata(self, delta, end_date, key, count, prevcount, *,
+                     reset=False):
         """Calculate rate and response time"""
         success_diff = (count.success - prevcount.success if prevcount
                         else count.success)
@@ -229,7 +247,7 @@ class SendTimeData:
         failure = await self.countdiff(count.failure, prev)
 
         data = CountStoreData(name=key, end=end_date, delta=delta, rate=rate,
-                              error=error, failure=failure)
+                              error=error, failure=failure, reset=reset)
         return data
 
     async def countdiff(self, count, prevcount):
@@ -391,7 +409,11 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
     rate = data.rate
     error = data.error
     failure = data.failure
+    reset = data.reset
     with (await statsdict.lock):
+        if reset:
+            await statsdict.aclearvals()
+
         # In-memory dict
         if error:
             async for k, c in aiter(error.items()):
@@ -631,8 +653,9 @@ class Total(Result):
             return
         df = DataFrame(data, index=dfindex)
         total = df['Total'].sum()
+        rate = 0 if vals.duration == 0 else total / vals.duration
         result = [total, df['Median'].median(), df['Average'].mean(),
-                  df['Min'].min(), df['Max'].max(), total / vals.duration]
+                  df['Min'].min(), df['Max'].max(), rate]
         result = DataFrame([Series(result, index=vals.index)],
                            index=['Totals'])
         vals.results = df = df.append(result)
@@ -657,8 +680,9 @@ class Total(Result):
         delta = df['response']
 
         # Calculate stats
+        rate = 0 if vals.duration == 0 else total / vals.duration
         r = [total, delta.median(), delta.mean(), delta.min(), delta.max(),
-             total / vals.duration]
+             rate]
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 
@@ -890,8 +914,9 @@ class SQLTotal(SQLResult, Total):
         delta = dfdata['response']
 
         # Calculate stats
+        rate = 0 if vals.duration == 0 else total / vals.duration
         r = [total, delta.median(), delta.mean(), delta.min(), delta.max(),
-             total / vals.duration]
+             rate]
         r = vals.resultcls(*r)
         vals.results[name] = Series(r, index=vals.index)
 

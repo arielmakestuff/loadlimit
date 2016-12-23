@@ -289,6 +289,7 @@ class MainLoop(BaseLoop):
 
     def init(self, config, state):
         """Initialize clients"""
+        countstore = state.countstore
         clients = frozenset(self.spawn_clients(config))
         self._clients = clients
         loop = self.loop
@@ -299,6 +300,9 @@ class MainLoop(BaseLoop):
              for c in clients]
         f = asyncio.gather(*t, loop=loop)
         loop.run_until_complete(f)
+
+        # Clear countstore
+        countstore.reset()
 
         # Schedule loop end
         ensure_future(self.endloop(config, state), loop=loop)
@@ -563,14 +567,14 @@ class StatSetup:
         self._calcobj = (None, None)
         self._results = None
         self._statsdict = None
-        self._countstore = None
+        self._countstore = state.countstore
 
     def __enter__(self):
         config = self._config
         state = self._state
         llconfig = config['loadlimit']
         self._statsdict = statsdict = Period()
-        self._countstore = countstore = measure
+        countstore = self._countstore
 
         if llconfig['cache']['type'] == 'memory':
             self._calcobj = tuple(c(statsdict=statsdict, countstore=countstore)
@@ -724,6 +728,7 @@ class RunLoop:
         state.progressbar = {}
         state.tqdm_progress = {}
         state.write = Printer()
+        state.countstore = measure
 
         self._statsetup = StatSetup(config, state)
 
