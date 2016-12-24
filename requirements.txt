@@ -8,7 +8,7 @@ python_dateutil==2.6.0
 pytz==2016.10
 
 # Pandas
-pandas==0.19.1
+pandas==0.19.2
 
 # Other
 SQLAlchemy==1.1.4
