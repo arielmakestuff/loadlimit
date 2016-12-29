@@ -287,19 +287,40 @@ class MainLoop(BaseLoop):
         formatter.converter = partial(datetime.fromtimestamp, tz=options['tz'])
         return formatter
 
+    async def initclients(self, config, state, clients, loop):
+        """Initialize clients according to the given rate"""
+        if not clients:
+            return
+        clients = set(clients)
+        rate = config['loadlimit']['initrate']
+        ensure_future = asyncio.ensure_future
+        numclients = len(clients)
+        if rate == 0:
+            rate = numclients
+        tasks = []
+        addtask = tasks.append
+        while True:
+            if numclients <= rate:
+                async for c in aiter(clients):
+                    addtask(ensure_future(c.init(config, state), loop=loop))
+                break
+            async for i in aiter(range(rate)):
+                c = clients.pop()
+                addtask(ensure_future(c.init(config, state), loop=loop))
+            numclients = len(clients)
+            await asyncio.sleep(1)
+        await asyncio.gather(*tasks, loop=loop)
+
     def init(self, config, state):
         """Initialize clients"""
         countstore = state.countstore
         clients = frozenset(self.spawn_clients(config))
         self._clients = clients
         loop = self.loop
+        ensure_future = asyncio.ensure_future
 
         # Init clients
-        ensure_future = asyncio.ensure_future
-        t = [ensure_future(c.init(config, state), loop=loop)
-             for c in clients]
-        f = asyncio.gather(*t, loop=loop)
-        loop.run_until_complete(f)
+        loop.run_until_complete(self.initclients(config, state, clients, loop))
 
         # Clear countstore
         countstore.reset()
@@ -363,7 +384,7 @@ class ProcessOptions:
         llconfig = config['loadlimit']
         order = ['timezone', 'numusers', 'duration', 'taskimporter', 'tqdm',
                  'cache', 'export', 'periods', 'logging', 'verbose',
-                 'qmaxsize', 'flushwait']
+                 'qmaxsize', 'flushwait', 'initrate']
         for name in order:
             getattr(self, name)(llconfig, args)
 
@@ -451,6 +472,10 @@ class ProcessOptions:
             raise ValueError('duration option got invalid value: {}'.
                              format(args.flushwait))
         config['flushwait'] = delta
+
+    def initrate(self, config, args):
+        """Setup initrate config"""
+        config['initrate'] = args.initrate
 
 
 process_options = ProcessOptions()
@@ -543,6 +568,13 @@ def defaultoptions(parser):
         '--flush-wait', dest='flushwait', default='2s',
         help=('The amount of time to wait before flushing data to disk. '
               'Default: 2 seconds')
+    )
+
+    # Client init rate
+    parser.add_argument(
+        '--user-init-rate', dest='initrate', default=0, type=int,
+        help=('The number of users to spawn every second'
+              'Default: 0 (ie spawn all users at once)')
     )
 
     parser.set_defaults(_main=RunLoop())
