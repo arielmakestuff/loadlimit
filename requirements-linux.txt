@@ -6,4 +6,4 @@ bottleneck==1.2.0
 tables==3.3.0
 
 # Other
-uvloop==0.7.1
+uvloop==0.7.2
