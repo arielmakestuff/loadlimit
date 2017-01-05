@@ -219,16 +219,19 @@ def tqdm_context(config, state, *, name=None, sched=False, **kwargs):
 class TQDMClient(Client):
     """tqdm-aware client"""
 
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
+        if clientid is None:
+            clientid = self.id
         pbarkey = 'iteration'
         pbar = state.progressbar.get(pbarkey, None)
         if pbar is None:
-            await super().__call__(state)
+            await super().__call__(state, clientid=clientid)
             return
 
         ensure_future = asyncio.ensure_future
         while True:
-            t = [ensure_future(corofunc(state)) for corofunc in self._corofunc]
+            t = [ensure_future(corofunc(state, clientid=clientid))
+                 for corofunc in self._corofunc]
             await asyncio.gather(*t)
             pbar.update(1)
             state.tqdm_progress[pbarkey] += 1

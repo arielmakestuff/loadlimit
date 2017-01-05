@@ -75,7 +75,7 @@ def test_init_mixedargs(testloop):
     class Five(TaskABC):
         """five"""
 
-        async def __call__(self, state):
+        async def __call__(self, state, *, clientid=None):
             """call"""
 
         async def init(self, config, state):
@@ -86,6 +86,17 @@ def test_init_mixedargs(testloop):
 
     c = Client(Task(one), [Task(two), Task(three)], Task(four), [Five])
     testloop.run_until_complete(c(None))
+
+
+def test_init_id():
+    """Return the client's unique id number"""
+
+    async def one():
+        pass
+
+    c = Client(Task(one))
+
+    assert c.id == id(c)
 
 
 # ============================================================================
@@ -101,8 +112,8 @@ def test_init_call(testloop):
     class TestClient(Client):
         """Add value once all tasks finished"""
 
-        async def __call__(self, state):
-            await super().__call__(state)
+        async def __call__(self, state, *, clientid=None):
+            await super().__call__(state, clientid=clientid)
             val.append(9000)
 
     async def one():

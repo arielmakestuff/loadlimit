@@ -134,6 +134,7 @@ async def test_mkdata_no_prevcount():
     count.success += 1
     count.error['what'] += 1
     count.failure['now'] += 1
+    count.client.add(1)
     s = SendTimeData(c)
 
     data = await s.mkdata(1, 42, key, c[key], None)
@@ -145,6 +146,7 @@ async def test_mkdata_no_prevcount():
     assert data.rate == (count.success / 1)
     assert data.error == count.error
     assert data.failure == count.failure
+    assert data.clientcount == 1
 
 
 @pytest.mark.asyncio
@@ -265,6 +267,7 @@ async def test_send_diff():
     count.success += 10
     count.error['what'] += 1
     count.failure['now'] += 1
+    count.client.add(1)
     snap.end_date = now() + to_timedelta(delta, 's')
     channel = stat.timedata
     s = SendTimeData(snap, channel=channel)
@@ -287,6 +290,7 @@ async def test_send_diff():
     assert checkdata.rate == 5
     assert checkdata.error == count.error
     assert checkdata.failure == count.failure
+    assert checkdata.clientcount == 1
 
 
 @pytest.mark.usefixtures('fake_timedata')
@@ -305,6 +309,7 @@ async def test_send_reset():
     count.success += 10
     count.error['what'] += 1
     count.failure['now'] += 1
+    count.client.add(1)
     snap.end_date = now() + to_timedelta(delta, 's')
     channel = stat.timedata
     s = SendTimeData(snap, flushwait=to_timedelta(0, unit='s'),
@@ -329,6 +334,7 @@ async def test_send_reset():
         count.success += 10
         count.error['what'] += 1
         count.failure['now'] += 1
+        count.client.add(1)
         snap.end_date = now() + to_timedelta(delta, 's')
 
         await s.send(delta, snap, prev)
@@ -399,6 +405,7 @@ def test_call_stop_after_send(testloop):
     count.success += 1
     count.error['what'] += 1
     count.failure['now'] += 1
+    count.client.add(1)
     s = Custom(c, channel=channel, flushwait=to_timedelta(0.1, unit='s'))
     calledcheck = False
 
@@ -414,6 +421,9 @@ def test_call_stop_after_send(testloop):
 
     assert calledcheck is True
     assert s.stop is True
+
+    # Check all Count objects have had their client reset
+    assert all(len(v.client) == 0 for v in c.values())
 
 
 @pytest.mark.usefixtures('fake_timedata')
@@ -442,6 +452,7 @@ def test_call_stop_after_send_aftersleep(testloop):
     count.success += 1
     count.error['what'] += 1
     count.failure['now'] += 1
+    count.client.add(1)
     s = Custom(c, channel=channel, flushwait=to_timedelta(0, unit='s'))
 
     t = asyncio.ensure_future(s())
@@ -484,6 +495,7 @@ def test_call_send(testloop):
         count.success += 1
         count.error['what'] += 1
         count.failure['now'] += 1
+        count.client.add(1)
 
     @channel
     async def check(data):
@@ -511,6 +523,7 @@ def test_call_send(testloop):
     assert round(checkdata.rate) == 1 / 0.1
     assert checkdata.error == dict(what=1)
     assert checkdata.failure == dict(now=1)
+    assert checkdata.clientcount == 1
 
 
 # ============================================================================

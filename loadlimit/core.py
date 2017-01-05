@@ -291,7 +291,7 @@ class TaskABC(metaclass=ABCMeta):
     """ABC definition of a loadlimit task"""
 
     @abstractmethod
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
         raise NotImplementedError
 
     @abstractmethod
@@ -319,7 +319,7 @@ class Task(TaskABC):
             raise TypeError(msg.format(type(corofunc).__name__))
         self._corofunc = corofunc
 
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
         await self._corofunc()
 
     async def init(self, config, state):
@@ -342,6 +342,7 @@ class Client(TaskABC):
     maxdelay = 0
 
     def __init__(self, *cf_or_cfiter, reschedule=False):
+        self._id = id(self)
         self._option = Namespace(reschedule=reschedule)
         cfiter = []
         cflist = []
@@ -368,10 +369,13 @@ class Client(TaskABC):
             raise ValueError(msg)
         self._corofunc = corofunc
 
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
+        if clientid is None:
+            clientid = self.id
         ensure_future = asyncio.ensure_future
         while True:
-            t = [ensure_future(corofunc(state)) for corofunc in self._corofunc]
+            t = [ensure_future(corofunc(state, clientid=clientid))
+                 for corofunc in self._corofunc]
             await asyncio.gather(*t)
 
             if not self.option.reschedule:
@@ -395,6 +399,11 @@ class Client(TaskABC):
     def option(self):
         """Return the option namespace"""
         return self._option
+
+    @property
+    def id(self):
+        """Return the client's unique id"""
+        return self._id
 
 
 # ============================================================================

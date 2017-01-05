@@ -41,7 +41,7 @@ from .util import aiter, Namespace, now
 
 CountStoreData = namedtuple('CountStoreData',
                             ['name', 'end', 'delta', 'rate', 'error',
-                             'failure', 'reset'])
+                             'failure', 'reset', 'clientcount'])
 
 
 # ============================================================================
@@ -67,12 +67,13 @@ timedata = DataChannel(name='timedata')
 
 
 class Count:
-    __slots__ = ('success', 'error', 'failure')
+    __slots__ = ('success', 'error', 'failure', 'client')
 
     def __init__(self):
         self.success = 0
         self.error = defaultdict(lambda: 0)
         self.failure = defaultdict(lambda: 0)
+        self.client = set()
 
     def addsuccess(self):
         """Increment the success count"""
@@ -86,8 +87,20 @@ class Count:
         """Add a failure and increment its count"""
         self.failure[fail] += 1
 
+    def addclient(self, clientid):
+        """Increment the client count"""
+        self.client.add(clientid)
+
+    def resetclient(self):
+        """Set client to a new empty set"""
+        self.client = set()
+
     def sum(self):
-        """Sum of all counts"""
+        """Sum of all counts
+
+        Does not include client counts.
+
+        """
         return sum(chain([self.success], self.error.values(),
                          self.failure.values()))
 
@@ -118,7 +131,7 @@ class CountStore(defaultdict):
 
         return copy
 
-    def __call__(self, corofunc=None, *, name=None):
+    def __call__(self, corofunc=None, *, name=None, clientid=None):
         """Decorator that records rate and response time of a corofunc"""
         if name is None:
             raise ValueError('name not given')
@@ -148,6 +161,7 @@ class CountStore(defaultdict):
                     count.error[repr(e)] += 1
                 else:
                     count.success += 1
+                    count.client.add(clientid)
                 finally:
                     self.end = perf_counter()
                     self.end_date = now()
@@ -159,6 +173,11 @@ class CountStore(defaultdict):
             return deco
 
         return deco(corofunc)
+
+    def allresetclient(self):
+        """Call resetclient() on every stored Count object"""
+        for v in self.values():
+            v.resetclient()
 
     def reset(self):
         """Reset all counts to starting values"""
@@ -207,6 +226,7 @@ class SendTimeData:
             curtime = perf_counter()
             delta = curtime - prevtime
             snapshot = deepcopy(countstore)
+            countstore.allresetclient()
             await sendfunc(delta, snapshot, prevsnapshot)
             prevtime = curtime
             prevsnapshot = snapshot
@@ -233,6 +253,7 @@ class SendTimeData:
     async def mkdata(self, delta, end_date, key, count, prevcount, *,
                      reset=False):
         """Calculate rate and response time"""
+        numclient = len(count.client)
         success_diff = (count.success - prevcount.success if prevcount
                         else count.success)
         rate = (success_diff / delta) if delta > 0 else 0
@@ -247,7 +268,8 @@ class SendTimeData:
         failure = await self.countdiff(count.failure, prev)
 
         data = CountStoreData(name=key, end=end_date, delta=delta, rate=rate,
-                              error=error, failure=failure, reset=reset)
+                              error=error, failure=failure, reset=reset,
+                              clientcount=numclient)
         return data
 
     async def countdiff(self, count, prevcount):
@@ -410,6 +432,7 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
     error = data.error
     failure = data.failure
     reset = data.reset
+    clientcount = data.clientcount
     with (await statsdict.lock):
         if reset:
             await statsdict.aclearvals()
@@ -438,7 +461,8 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
                                    'count'])
                 statsdict.addfailure(name, sf)
 
-        response = (1 / rate) * 1000 if rate > 0 else 0
+        clientrate = rate / clientcount if clientcount > 0 else 0
+        response = (1 / clientrate) * 1000 if clientrate > 0 else 0
         if rate or response:
             s = Series([end, rate, response],
                        index=['end', 'rate', 'response'])

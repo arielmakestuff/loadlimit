@@ -77,7 +77,7 @@ from loadlimit.core import TaskABC
 
 class TestTask(TaskABC):
 
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
         state.value += 1
 
     async def init(self, config, state):
@@ -169,6 +169,38 @@ def test_tqdm_client(pbar, testloop):
     assert state.tqdm_progress[name] == 1
 
 
+def test_tqdm_client_clientid(pbar, testloop):
+    """TQDMClient.__call__() w/ non-None clientid ignores TQDMClient's own id"""
+    name = 'iteration'
+    state = Namespace(tqdm_progress={name: 0}, progressbar={name: pbar})
+    given_clientid = None
+
+    class TestTask(core.TaskABC):
+        """TestTask"""
+
+        async def __call__(self, state, *, clientid=None):
+            """call"""
+            nonlocal given_clientid
+            given_clientid = clientid
+            client.option.reschedule = False
+
+        async def init(self, config, state):
+            """init"""
+
+        async def shutdown(self, config, state):
+            """shutdown"""
+
+    client = cli.TQDMClient(TestTask, reschedule=True)
+    assert client.id != 42
+
+    f = asyncio.gather(client(state, clientid=42))
+    testloop.run_until_complete(f)
+
+    assert state.tqdm_progress[name] == 1
+    assert given_clientid != client.id
+    assert given_clientid == 42
+
+
 def test_tqdm_noupdate(pbar, testloop):
     """tqdm pbar is not updated is its total has been reached"""
     pbar.total = 1
@@ -195,7 +227,7 @@ def test_tqdm_nopbar(testloop):
     class Task(core.TaskABC):
         """Custom task"""
 
-        async def __call__(self, state):
+        async def __call__(self, state, *, clientid=None):
             state.value += 1
 
         async def init(self, config, state):

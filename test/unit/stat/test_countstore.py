@@ -75,6 +75,31 @@ def test_count_addfailure():
         assert c.failure[key] == i + 1
 
 
+def test_count_addclient():
+    """Adding a client adds the client id"""
+    c = Count()
+    for i in range(10):
+        clientid = id(i)
+        c.addclient(clientid)
+        assert clientid in c.client
+        assert len(c.client) == i + 1
+
+
+def test_count_resetclient():
+    """Adding a client adds the client id"""
+    c = Count()
+    for i in range(10):
+        clientid = id(i)
+        c.addclient(clientid)
+
+    assert len(c.client) == 10
+    cursetid = id(c.client)
+    c.resetclient()
+    assert id(c.client) != cursetid
+    assert not c.client
+    assert isinstance(c.client, set)
+
+
 def test_count_sum_zero():
     """Return 0"""
     c = Count()
@@ -186,6 +211,7 @@ async def test_countstore_measure_setkey(monkeypatch):
     assert called is True
     assert measure['run'].sum() == 1
     assert measure['run'].success == 1
+    assert len(measure['run'].client) == 1
 
 
 @pytest.mark.asyncio
@@ -289,6 +315,31 @@ async def test_countstore_measure_error(exctype):
     assert not count.failure
     assert len(count.error) == 1
     assert count.error[repr(err)] == 1
+
+
+# ============================================================================
+# Test CountStore.allresetclient()
+# ============================================================================
+
+
+def test_count_allresetclient_reset_empty():
+    """Does not raise an error when calling on an empty CountStore object"""
+    c = CountStore()
+    c.allresetclient()
+
+
+def test_count_allresetclient_call():
+    """Call resetclient() on every stored Count object"""
+    c = CountStore()
+    for i in range(10):
+        c[i].client.update(id(i) for i in range(5))
+
+    c.allresetclient()
+
+    assert len(c) == 10
+    assert list(c.keys()) == list(range(10))
+    assert all(isinstance(count.client, set) for count in c.values())
+    assert all(len(count.client) == 0 for count in c.values())
 
 
 # ============================================================================

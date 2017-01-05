@@ -112,7 +112,7 @@ class TestTask(TaskABC):
     def __init__(self):
         self._val = None
 
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
         self._val.append(42)
 
     async def init(self, config, state):

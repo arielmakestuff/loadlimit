@@ -64,7 +64,7 @@ from loadlimit.core import TaskABC
 
 class TestTask(TaskABC):
 
-    async def __call__(self, state):
+    async def __call__(self, state, *, clientid=None):
         state.value += 1
 
     async def init(self, config, state):
