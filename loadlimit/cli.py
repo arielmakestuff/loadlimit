@@ -314,6 +314,30 @@ class MainLoop(BaseLoop):
             await asyncio.sleep(1)
         await asyncio.gather(*tasks, loop=loop)
 
+    async def schedclients(self, config, state, clients, loop):
+        """Schedule clients according to schedsize and sched_delay"""
+        if not clients:
+            return
+        size = config['loadlimit']['schedsize']
+        delay = config['loadlimit']['sched_delay'].total_seconds()
+        ensure_future = asyncio.ensure_future
+        sleep = asyncio.sleep
+        clients = set(clients)
+        numclients = len(clients)
+        numsched = 0
+        if size == 0:
+            size = numclients
+        if size == numclients:
+            delay = 0
+        while numsched < numclients:
+            if not state.reschedule:
+                break
+            for i in range(size):
+                c = clients.pop()
+                ensure_future(c(state), loop=loop)
+            numsched = numsched + size
+            await sleep(delay)
+
     def init(self, config, state):
         """Initialize clients"""
         countstore = state.countstore
@@ -332,8 +356,8 @@ class MainLoop(BaseLoop):
         ensure_future(self.endloop(config, state), loop=loop)
 
         # Schedule clients on the loop
-        for c in clients:
-            ensure_future(c(state), loop=loop)
+        ensure_future(self.schedclients(config, state, clients, loop),
+                      loop=loop)
 
     def shutdown(self, config, state):
         """Shutdown clients"""
@@ -387,7 +411,8 @@ class ProcessOptions:
         llconfig = config['loadlimit']
         order = ['timezone', 'numusers', 'duration', 'taskimporter', 'tqdm',
                  'cache', 'export', 'periods', 'logging', 'verbose',
-                 'qmaxsize', 'flushwait', 'initrate']
+                 'qmaxsize', 'flushwait', 'initrate', 'schedsize',
+                 'sched_delay']
         for name in order:
             getattr(self, name)(llconfig, args)
 
@@ -479,6 +504,27 @@ class ProcessOptions:
     def initrate(self, config, args):
         """Setup initrate config"""
         config['initrate'] = args.initrate
+
+    def schedsize(self, config, args):
+        """Setup schedsize config"""
+        size = args.schedsize
+        numusers = config['numusers']
+        if size > numusers:
+            msg = ('sched-size option expected maximum value of {}, '
+                   'got value {}')
+            raise ValueError(msg.format(numusers, size))
+        config['schedsize'] = size
+
+    def sched_delay(self, config, args):
+        """Setup sched_delay config"""
+        try:
+            delta = Timedelta(args.sched_delay)
+        except Exception:
+            delta = None
+        if not isinstance(delta, Timedelta):
+            raise ValueError('sched-delay option got invalid value: {}'.
+                             format(args.sched_delay))
+        config['sched_delay'] = delta
 
 
 process_options = ProcessOptions()
@@ -576,8 +622,22 @@ def defaultoptions(parser):
     # Client init rate
     parser.add_argument(
         '--user-init-rate', dest='initrate', default=0, type=int,
-        help=('The number of users to spawn every second'
+        help=('The number of users to spawn every second. '
               'Default: 0 (ie spawn all users at once)')
+    )
+
+    # Client schedule rate
+    parser.add_argument(
+        '--sched-size', dest='schedsize', default=0, type=int,
+        help=('The number of users to schedule at once. '
+              'Default: 0 (ie schedule all users)')
+    )
+
+    parser.add_argument(
+        '--sched-delay', dest='sched_delay', default='0s',
+        help=('The amount of time to wait before scheduling the number of '
+              'users defined by --sched-size. Default: 0 (ie schedule all '
+              'users)')
     )
 
     parser.set_defaults(_main=RunLoop())

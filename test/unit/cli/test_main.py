@@ -110,8 +110,8 @@ def test_main_default_args():
     llconfig = config['loadlimit']
 
     names = ['timezone', 'numusers', 'duration', 'importer',
-             'show-progressbar', 'cache', 'export', 'periods',
-             'logging', 'qmaxsize', 'flushwait', 'initrate']
+             'show-progressbar', 'cache', 'export', 'periods', 'logging',
+             'qmaxsize', 'flushwait', 'initrate', 'schedsize', 'sched_delay']
     assert len(llconfig) == len(names)
     for name in names:
         assert name in llconfig
@@ -129,6 +129,8 @@ def test_main_default_args():
     assert llconfig['qmaxsize'] == 1000
     assert llconfig['flushwait'] == Timedelta('2s')
     assert llconfig['initrate'] == 0
+    assert llconfig['schedsize'] == 0
+    assert llconfig['sched_delay'] == Timedelta('0s')
 
 
 @pytest.mark.parametrize('val', ['fhjdsf', '42z', 'one zots'])
@@ -298,6 +300,51 @@ def test_main_flushwait_badval(val):
     args = ['--flush-wait', str(val), '-d', '1s', 'what']
 
     expected = 'duration option got invalid value: {}'.format(val)
+    with pytest.raises(ValueError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (expected, )
+
+
+def test_main_schedsize_badval():
+    """Raise error if sched-size is given value larger than numusers"""
+    numusers = 10
+    schedsize = 42
+    config = {}
+    args = ['-u', str(numusers), '--sched-size', str(schedsize), '-d', '1s',
+            'what']
+
+    msg = 'sched-size option expected maximum value of {}, got value {}'
+    expected = msg.format(numusers, schedsize)
+    with pytest.raises(ValueError) as err:
+        main(arglist=args, config=config)
+
+    assert err.value.args == (expected, )
+
+
+@pytest.mark.parametrize('val,numusers', [
+    (v, u) for v in [0, 5, 10]
+    for u in [0, 5, 10]
+])
+def test_main_schedsize_goodval(val, numusers):
+    """Don't raise eror if sched-size is >= 0 and <= numusers"""
+    numusers = 10
+    schedsize = 10
+    config = {}
+    args = ['-u', str(numusers), '--sched-size', str(schedsize), '-d', '1s',
+            'what']
+
+    with pytest.raises(SystemExit):
+        main(arglist=args, config=config)
+
+
+@pytest.mark.parametrize('val', ['hello', (42, )])
+def test_main_sched_delay_badval(val):
+    """Raise error if sched_delay is given bad value"""
+    config = {}
+    args = ['--sched-delay', str(val), '-d', '1s', 'what']
+
+    expected = 'sched-delay option got invalid value: {}'.format(val)
     with pytest.raises(ValueError) as err:
         main(arglist=args, config=config)
 
