@@ -39,10 +39,10 @@ from . import channel
 from . import stat
 from .core import BaseLoop, Client
 from .importhook import TaskImporter
+from .result import (SQLTimeSeries, SQLTotal, SQLTotalError, SQLTotalFailure,
+                     TimeSeries, Total, TotalError, TotalFailure)
 from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
-                   SendTimeData, SQLTimeSeries, SQLTotal, SQLTotalError,
-                   SQLTotalFailure, TimeSeries, Total, TotalError,
-                   TotalFailure)
+                   SendTimeData)
 from .util import aiter, Event, EventType, LogLevel, Namespace, TZ_UTC
 
 

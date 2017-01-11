@@ -17,7 +17,8 @@
 from pandas import DataFrame
 
 # Local imports
-from loadlimit.stat import CountStore, SQLTimeSeries
+from loadlimit.result import SQLTimeSeries
+from loadlimit.stat import CountStore
 
 
 # ============================================================================

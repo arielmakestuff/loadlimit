@@ -17,6 +17,7 @@
 from pandas import Timestamp, to_timedelta
 
 # Local imports
+import loadlimit.result as result
 import loadlimit.stat as stat
 
 
@@ -30,10 +31,10 @@ def test_noresults(statsdict):
     measure = stat.CountStore()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
-    with stat.Total(statsdict=statsdict, countstore=measure) as result:
+    with result.Total(statsdict=statsdict, countstore=measure) as r:
         pass
 
-    assert result.vals.results is None
+    assert r.vals.results is None
 
 
 # ============================================================================
@@ -47,7 +48,7 @@ def test_calculate_nodata(statsdict):
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'
-    calc = stat.Total(statsdict=statsdict, countstore=measure)
+    calc = result.Total(statsdict=statsdict, countstore=measure)
     calc.__enter__()
     calc.calculate(key, [], [], [])
 
@@ -66,14 +67,14 @@ def test_export_nodata(monkeypatch, statsdict):
     measure = stat.CountStore()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
-    calc = stat.Total(statsdict=statsdict, countstore=measure)
+    calc = result.Total(statsdict=statsdict, countstore=measure)
     called = False
 
     def fake_exportdf(self, df, name, export_type, exportdir):
         nonlocal called
         called = True
 
-    monkeypatch.setattr(stat.Total, 'exportdf', fake_exportdf)
+    monkeypatch.setattr(result.Total, 'exportdf', fake_exportdf)
 
     with calc:
         pass

@@ -26,9 +26,11 @@ import loadlimit.cli as cli
 from loadlimit.cli import StatSetup
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
-from loadlimit.util import aiter, Namespace
+import loadlimit.result as result
+from loadlimit.result import Result
 import loadlimit.stat as stat
-from loadlimit.stat import CountStore, Result
+from loadlimit.stat import CountStore
+from loadlimit.util import aiter, Namespace
 
 
 # ============================================================================
@@ -86,7 +88,7 @@ def test_statsetup_results(monkeypatch, testloop, numiter, xv):
 
     monkeypatch.setattr(cli, 'measure', measure)
     monkeypatch.setattr(cli, 'pathjoin', fake_pathjoin)
-    for m in [cli, stat]:
+    for m in [cli, result]:
         monkeypatch.setattr(m, 'create_engine', fake_create_engine)
 
     llconfig = dict(
@@ -187,7 +189,7 @@ class CreateEngine:
 
 def test_exportdf_csv(monkeypatch):
     """Calls DataFrame.to_csv() with correct args"""
-    monkeypatch.setattr(stat, 'mktime', fake_mktime)
+    monkeypatch.setattr(result, 'mktime', fake_mktime)
 
     export_dir = Path('/not', 'exist')
     filename = 'export_42.csv'
@@ -203,8 +205,8 @@ def test_exportdf_sqlite(monkeypatch):
 
     fake_engine = CreateEngine()
 
-    monkeypatch.setattr(stat, 'create_engine', fake_engine)
-    monkeypatch.setattr(stat, 'mktime', fake_mktime)
+    monkeypatch.setattr(result, 'create_engine', fake_engine)
+    monkeypatch.setattr(result, 'mktime', fake_mktime)
 
     export_dir = Path('/not', 'exist')
     df = FakeDataFrame('total', fake_engine)

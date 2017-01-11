@@ -21,8 +21,9 @@ import pytest
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
+from loadlimit.result import Total
 import loadlimit.stat as stat
-from loadlimit.stat import CountStore, Failure, SendTimeData, Total
+from loadlimit.stat import CountStore, Failure, SendTimeData
 from loadlimit.util import aiter
 
 

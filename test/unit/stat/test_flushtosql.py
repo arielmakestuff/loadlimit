@@ -23,8 +23,9 @@ from sqlalchemy import create_engine
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
+from loadlimit.result import SQLTotal
 import loadlimit.stat as stat
-from loadlimit.stat import CountStore, SendTimeData, SQLTotal
+from loadlimit.stat import CountStore, SendTimeData
 from loadlimit.util import aiter
 
 
@@ -76,8 +77,6 @@ def test_flushtosql(testloop, num):
         """run"""
         async for i in aiter(range(num)):
             await churn(i)
-        # await stat.timedata.join()
-        # await send.shutdown()
         await channel.shutdown.send(0)
 
     # Setup SendTimeData

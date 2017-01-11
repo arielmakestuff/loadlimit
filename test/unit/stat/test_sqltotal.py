@@ -17,7 +17,8 @@
 from pandas import DataFrame, Timestamp, to_timedelta
 
 # Local imports
-from loadlimit.stat import CountStore, SQLTotal
+from loadlimit.result import SQLTotal
+from loadlimit.stat import CountStore
 
 
 # ============================================================================

@@ -23,9 +23,11 @@ from sqlalchemy import create_engine
 # Local imports
 import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
+import loadlimit.result as result
+from loadlimit.result import SQLTimeSeries, TimeSeries
 import loadlimit.stat as stat
 from loadlimit.stat import (CountStore, flushtosql, flushtosql_shutdown,
-                            SendTimeData, SQLTimeSeries, TimeSeries)
+                            SendTimeData)
 from loadlimit.util import aiter
 
 
@@ -165,7 +167,7 @@ def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
     measure = CountStore()
     key = '42'
-    calc = stat.TimeSeries(statsdict=statsdict, countstore=measure)
+    calc = result.TimeSeries(statsdict=statsdict, countstore=measure)
     calc.__enter__()
     calc.calculate(key, [], [], [])
 

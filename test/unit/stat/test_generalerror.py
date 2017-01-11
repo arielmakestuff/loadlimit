@@ -18,7 +18,8 @@ from pandas import Series, Timestamp, to_timedelta
 import pytest
 
 # Local imports
-from loadlimit.stat import CountStore, Failure, TotalError, TotalFailure
+from loadlimit.result import TotalError, TotalFailure
+from loadlimit.stat import CountStore, Failure
 
 
 # ============================================================================
