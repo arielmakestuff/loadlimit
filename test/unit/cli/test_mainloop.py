@@ -71,7 +71,7 @@ async def test_initclients_initialize(monkeypatch, initrate, numclients):
 
     clients = [TestClient() for i in range(numclients)]
     config = dict(loadlimit=dict(initrate=initrate))
-    state = Namespace()
+    state = Namespace(event=[])
     loop = asyncio.get_event_loop()
 
     # Run initclients()
@@ -132,7 +132,7 @@ async def test_schedclients_schedule(monkeypatch, size, delay, numclients):
     clients = [TestClient() for i in range(numclients)]
     config = dict(loadlimit=dict(schedsize=size,
                                  sched_delay=to_timedelta(delay, unit='s')))
-    state = Namespace(reschedule=True)
+    state = Namespace(reschedule=True, event=[])
 
     # Run schedclients()
     mainloop = MainLoop()
@@ -201,7 +201,7 @@ async def test_schedclients_noreschedule(monkeypatch):
     clients = [TestClient() for i in range(numclients)]
     config = dict(loadlimit=dict(schedsize=size,
                                  sched_delay=to_timedelta(delay, unit='s')))
-    state = Namespace(reschedule=True)
+    state = Namespace(reschedule=True, event=[])
 
     # Run schedclients()
     mainloop = MainLoop()

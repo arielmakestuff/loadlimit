@@ -14,6 +14,7 @@
 # Stdlib imports
 import argparse
 from collections import ChainMap
+from collections.abc import Sequence
 from enum import Enum
 from functools import partial
 import logging
@@ -139,6 +140,48 @@ class Logger:
     def logger(self):
         """Return the underlying logger object"""
         return self._logger
+
+
+# ============================================================================
+# Event container
+# ============================================================================
+
+
+EventType = Enum('EventType', ['start', 'init_start', 'init_end',
+                               'warmup_start', 'warmup_end', 'end'])
+
+
+class Event(Sequence):
+    __slots__ = ('_val', )
+
+    def __init__(self, event_type, timestamp=None):
+        if not isinstance(event_type, EventType):
+            msg = 'event_type arg expected {} object, got {} object instead'
+            raise TypeError(msg.format(EventType.__name__,
+                                       type(event_type).__name__))
+        if timestamp is None:
+            timestamp = now()
+        if not isinstance(timestamp, Timestamp):
+            msg = 'timestamp arg expected {} object, got {} object instead'
+            raise TypeError(msg.format(Timestamp.__name__,
+                                       type(timestamp).__name__))
+        self._val = (event_type, timestamp)
+
+    def __getitem__(self, key):
+        return self._val[key]
+
+    def __len__(self):
+       return len(self._val)
+
+    @property
+    def type(self):
+        """Return the event type"""
+        return self._val[0]
+
+    @property
+    def timestamp(self):
+        """Return the event timestamp"""
+        return self._val[1]
 
 
 # ============================================================================

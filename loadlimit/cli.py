@@ -43,7 +43,7 @@ from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
                    SendTimeData, SQLTimeSeries, SQLTotal, SQLTotalError,
                    SQLTotalFailure, TimeSeries, Total, TotalError,
                    TotalFailure)
-from .util import aiter, LogLevel, Namespace, TZ_UTC
+from .util import aiter, Event, EventType, LogLevel, Namespace, TZ_UTC
 
 
 # ============================================================================
@@ -302,6 +302,7 @@ class MainLoop(BaseLoop):
             rate = numclients
         tasks = []
         addtask = tasks.append
+        state.event.append(Event(EventType.init_start))
         while True:
             if numclients <= rate:
                 async for c in aiter(clients):
@@ -313,6 +314,7 @@ class MainLoop(BaseLoop):
             numclients = len(clients)
             await asyncio.sleep(1)
         await asyncio.gather(*tasks, loop=loop)
+        state.event.append(Event(EventType.init_end))
 
     async def schedclients(self, config, state, clients, loop):
         """Schedule clients according to schedsize and sched_delay"""
@@ -329,6 +331,7 @@ class MainLoop(BaseLoop):
             size = numclients
         if size == numclients:
             delay = 0
+        state.event.append(Event(EventType.warmup_start))
         while numsched < numclients:
             if not state.reschedule:
                 break
@@ -337,6 +340,7 @@ class MainLoop(BaseLoop):
                 ensure_future(c(state), loop=loop)
             numsched = numsched + size
             await sleep(delay)
+        state.event.append(Event(EventType.warmup_end))
 
     def init(self, config, state):
         """Initialize clients"""
@@ -664,6 +668,9 @@ class StatSetup:
         self._statsdict = None
         self._countstore = state.countstore
 
+        # Setup event list
+        state.event = []
+
     def __enter__(self):
         config = self._config
         state = self._state
@@ -704,6 +711,11 @@ class StatSetup:
 
             if countstore.start_date is None:
                 return
+
+            # Add start and end events to the event timeline
+            event = self._state.event
+            event.insert(0, Event(EventType.start, countstore.start_date))
+            event.append(Event(EventType.end, countstore.end_date))
 
             # Enter results contexts
             for r in calcobj:
