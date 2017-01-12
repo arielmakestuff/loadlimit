@@ -17,7 +17,7 @@ import asyncio
 from collections import defaultdict
 from contextlib import contextmanager, ExitStack
 from datetime import datetime
-from functools import partial
+from functools import partial, wraps
 from importlib import import_module
 from itertools import count
 from logging import FileHandler, Formatter
@@ -339,9 +339,23 @@ class MainLoop(BaseLoop):
         """Shutdown clients"""
         loop = self.loop
 
+        def ignore_error(corofunc):
+
+            @wraps(corofunc)
+            async def wrapper(config, state):
+                ret = None
+                try:
+                    ret = await corofunc(config, state)
+                except Exception as e:
+                    msg = 'ignored exception ({}): {}'
+                    self.logger.error(msg.format(type(e).__name__, e))
+                return ret
+
+            return wrapper
+
         # Tell clients to shutdown
         ensure_future = asyncio.ensure_future
-        t = [ensure_future(c.shutdown(config, state), loop=loop)
+        t = [ensure_future(ignore_error(c.shutdown)(config, state), loop=loop)
              for c in self._clients]
         f = asyncio.gather(*t, loop=loop)
         loop.run_until_complete(f)
@@ -742,7 +756,10 @@ class RunLoop:
                     time.sleep(0.1)
                     pbar.update(1)
 
-        ret = self._main.exitcode
+        if state.exitcode != 0:
+            ret = state.exitcode
+        else:
+            ret = self._main.exitcode
         self._main = None
         self._statsetup = None
         state.write('\n\n', startnewline=True)
@@ -764,6 +781,7 @@ class RunLoop:
         state.tqdm_progress = {}
         state.write = Printer()
         state.countstore = measure
+        state.exitcode = 0
 
         self._statsetup = StatSetup(config, state)
 
@@ -822,9 +840,12 @@ class RunLoop:
     def shutdown_clients(self, stack, config, state):
         """Tell clients to shutdown"""
         numusers = config['loadlimit']['numusers']
-        with tqdm_context(config, state, name='shutdown',
-                          desc='Stopping Clients', total=numusers):
-            self._main.shutdown(config, state)
+        try:
+            with tqdm_context(config, state, name='shutdown',
+                              desc='Stopping Clients', total=numusers):
+                self._main.shutdown(config, state)
+        except Exception as e:
+            state.exitcode = 255
 
 
 # ============================================================================
