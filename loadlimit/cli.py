@@ -43,8 +43,9 @@ from . import channel
 from . import stat
 from .core import BaseLoop, Client
 from .importhook import TaskImporter
-from .result import (SQLTimeSeries, SQLTotal, SQLTotalError, SQLTotalFailure,
-                     TimeSeries, Total, TotalError, TotalFailure)
+from .result import (ErrorTimeSeries, FailureTimeSeries, SQLTimeSeries,
+                     SQLTotal, SQLTotalError, SQLTotalFailure, TimeSeries,
+                     Total, TotalError, TotalFailure)
 from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
                    SendTimeData)
 from .util import aiter, Event, EventType, LogLevel, Namespace, TZ_UTC
@@ -307,7 +308,7 @@ class MainLoop(BaseLoop):
             rate = numclients
         tasks = []
         addtask = tasks.append
-        state.event.append(Event(EventType.init_start))
+        state.event.append(Event(EventType.init_start, logger=self.logger))
         while True:
             if numclients <= rate:
                 async for c in aiter(clients):
@@ -319,7 +320,7 @@ class MainLoop(BaseLoop):
             numclients = len(clients)
             await asyncio.sleep(1)
         await asyncio.gather(*tasks, loop=loop)
-        state.event.append(Event(EventType.init_end))
+        state.event.append(Event(EventType.init_end, logger=self.logger))
 
     async def schedclients(self, config, state, clients, loop):
         """Schedule clients according to schedsize and sched_delay"""
@@ -336,7 +337,7 @@ class MainLoop(BaseLoop):
             size = numclients
         if size == numclients:
             delay = 0
-        state.event.append(Event(EventType.warmup_start))
+        state.event.append(Event(EventType.warmup_start, logger=self.logger))
         while numsched < numclients:
             if not state.reschedule:
                 break
@@ -345,7 +346,7 @@ class MainLoop(BaseLoop):
                 ensure_future(c(state), loop=loop)
             numsched = numsched + size
             await sleep(delay)
-        state.event.append(Event(EventType.warmup_end))
+        state.event.append(Event(EventType.warmup_end, logger=self.logger))
 
     def init(self, config, state):
         """Initialize clients"""
@@ -686,7 +687,8 @@ class StatSetup:
         if llconfig['cache']['type'] == 'memory':
             self._calcobj = tuple(c(statsdict=statsdict, countstore=countstore)
                                   for c in [Total, TimeSeries, TotalError,
-                                            TotalFailure])
+                                            TotalFailure, ErrorTimeSeries,
+                                            FailureTimeSeries])
             state.sqlengine = None
         else:
             cachefile = pathjoin(llconfig['tempdir'], 'cache.db')
@@ -708,7 +710,11 @@ class StatSetup:
 
     def __exit__(self, errtype, err, errtb):
         calcobj = self._calcobj
-        total, timeseries, error, failure = calcobj
+        total, timeseries, error, failure = calcobj[:4]
+        errtimeseries = failtimeseries = None
+        if len(calcobj) > 4:
+            errtimeseries, failtimeseries = calcobj[4:]
+
         countstore = self._countstore
         with ExitStack() as stack:
             # Set timeseries periods
@@ -739,6 +745,9 @@ class StatSetup:
                 (total.vals.results, ) + timeseries.vals.results +
                 (error.vals.results, failure.vals.results)
             )
+            if errtimeseries is not None:
+                results = (results + errtimeseries.vals.results +
+                           failtimeseries.vals.results)
             self._results = results
             return
 
@@ -753,6 +762,9 @@ class StatSetup:
             (total.vals.results, ) + timeseries.vals.results +
             (error.vals.results, failure.vals.results)
         )
+        if errtimeseries is not None:
+            results = (results + errtimeseries.vals.results +
+                       failtimeseries.vals.results)
         self._results = results
 
     def startevent(self):
