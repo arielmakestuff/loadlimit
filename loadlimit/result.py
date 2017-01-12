@@ -13,6 +13,7 @@
 
 # Stdlib imports
 from hashlib import sha1
+from itertools import groupby
 from collections import namedtuple, OrderedDict
 from pathlib import Path
 from time import mktime
@@ -243,6 +244,49 @@ class TimeSeries(Result):
         """Export total values"""
         df_response, df_rate = self.vals.results
         for name, df in zip(['response', 'rate'], [df_response, df_rate]):
+            if df is not None:
+                self.exportdf(df, name, export_type, exportdir)
+
+
+class ErrorTimeSeries(TimeSeries):
+    """Calculate error time series results"""
+
+    def calculate(self, name, data, error, failure):
+        """Calculate results"""
+        data = []
+        for k, group in groupby(error, key=lambda s: s['end']):
+            df = DataFrame(list(group))
+            first = df.loc[0]
+            end = first['end']
+            rate = df['rate'].mean()
+            response = df['response'].mean()
+            s = Series([end, rate, response],
+                       index=['end', 'rate', 'response'])
+            data.append(s)
+
+        super().calculate(name, data, [], [])
+
+    def export(self, export_type, exportdir):
+        """Export total values"""
+        df_response, df_rate = self.vals.results
+        for name, df in zip(['error_response', 'error_rate'],
+                            [df_response, df_rate]):
+            if df is not None:
+                self.exportdf(df, name, export_type, exportdir)
+
+
+class FailureTimeSeries(ErrorTimeSeries):
+    """Calculate failure time series results"""
+
+    def calculate(self, name, data, error, failure):
+        """Calculate results"""
+        super().calculate(name, [], failure, [])
+
+    def export(self, export_type, exportdir):
+        """Export total values"""
+        df_response, df_rate = self.vals.results
+        for name, df in zip(['failure_response', 'failure_rate'],
+                            [df_response, df_rate]):
             if df is not None:
                 self.exportdf(df, name, export_type, exportdir)
 
