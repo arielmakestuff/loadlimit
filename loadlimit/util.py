@@ -17,6 +17,7 @@ from collections import ChainMap
 from collections.abc import Sequence
 from enum import Enum
 from functools import partial
+import json
 import logging
 
 # Third-party imports
@@ -154,18 +155,28 @@ EventType = Enum('EventType', ['start', 'init_start', 'init_end',
 class Event(Sequence):
     __slots__ = ('_val', )
 
-    def __init__(self, event_type, timestamp=None):
+    def __init__(self, event_type, timestamp=None, *, logger=None):
         if not isinstance(event_type, EventType):
             msg = 'event_type arg expected {} object, got {} object instead'
             raise TypeError(msg.format(EventType.__name__,
                                        type(event_type).__name__))
         if timestamp is None:
             timestamp = now()
+
         if not isinstance(timestamp, Timestamp):
             msg = 'timestamp arg expected {} object, got {} object instead'
             raise TypeError(msg.format(Timestamp.__name__,
                                        type(timestamp).__name__))
-        self._val = (event_type, timestamp)
+
+        if not isinstance(logger, (type(None), Logger)):
+            msg = 'logger arg expected {} object, got {} object instead'
+            raise TypeError(msg.format(Logger.__name__, type(logger).__name__))
+
+        self._val = val = (event_type, timestamp)
+
+        if logger is not None:
+            msg = dict(name=event_type.name, timestamp=str(timestamp))
+            logger.info('EVENT: {}', json.dumps(msg))
 
     def __getitem__(self, key):
         return self._val[key]

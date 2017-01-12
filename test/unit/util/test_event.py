@@ -12,17 +12,19 @@
 
 
 # Stdlib imports
+import json
+import logging
 
 # Third-party imports
 from pandas import Timestamp
 import pytest
 
 # Local imports
-from loadlimit.util import Event, EventType, now
+from loadlimit.util import Event, EventType, Logger, now
 
 
 # ============================================================================
-# Tests
+# Test __init__
 # ============================================================================
 
 
@@ -70,6 +72,49 @@ def test_init_timestamp_goodval():
     assert e.timestamp == cur
 
 
+@pytest.mark.parametrize('val', [42, 4.2, '42', [42], (42, )])
+def test_init_logger_badbal(val):
+    """Raise error if given bad value for the logger arg"""
+    expected = ('logger arg expected {} object, got {} object instead'.
+                format(Logger.__name__, type(val).__name__))
+
+    with pytest.raises(TypeError) as err:
+        Event(EventType.start, logger=val)
+
+    assert err.value.args == (expected, )
+
+
+def test_init_logger_noval(caplog):
+    """Don't log anything if logger arg is not given a value"""
+    with caplog.at_level(logging.DEBUG):
+        Event(EventType.start)
+        assert len(caplog.records) == 0
+
+
+def test_init_logger_goodval(caplog):
+    """Log an info message if given a logging.Logger object"""
+    logger = Logger(name=__name__)
+    e = Event(EventType.start, logger=logger)
+    expected = dict(name=e.type.name, timestamp=e.timestamp)
+
+    assert len(caplog.records) == 1
+    r = caplog.records[0]
+
+    # Check record
+    pre = 'EVENT: '
+    assert r.levelno == logging.INFO
+    assert r.message.startswith(pre)
+
+    message = json.loads(r.message[len(pre):])
+    message['timestamp'] = Timestamp(message['timestamp'], tz='UTC')
+    assert message == expected
+
+
+# ============================================================================
+# Test __getitem__
+# ============================================================================
+
+
 @pytest.mark.parametrize('key', [0, 1])
 def test_getitem_goodkey(key):
     """__getitem__() retrieves correct value"""
@@ -85,6 +130,11 @@ def test_getitem_badkey():
         e[42]
 
     assert err.value.args == (expected, )
+
+
+# ============================================================================
+# Test __len__
+# ============================================================================
 
 
 def test_len():
