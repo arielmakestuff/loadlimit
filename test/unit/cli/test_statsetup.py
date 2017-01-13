@@ -97,7 +97,7 @@ def test_statsetup_results(monkeypatch, testloop, numiter, xv):
         periods=1,
         export=dict(type=xv, targetdir=tempdir),
         qmaxsize=1000,
-        flushwait=to_timedelta(0, unit='s')
+        flushwait=to_timedelta(0.0001, unit='s')
     )
     config = dict(loadlimit=llconfig)
     state = Namespace(write=cli.Printer(), progressbar={},
@@ -196,7 +196,7 @@ def test_exportdf_csv(monkeypatch):
     expected_path = str(export_dir / filename)
     df = FakeDataFrame(expected_path, index_label='Name')
 
-    state = Namepspace()
+    state = Namespace()
     r = Result(state)
     r.exportdf(df, 'export', 'csv', str(export_dir))
 
@@ -212,7 +212,7 @@ def test_exportdf_sqlite(monkeypatch):
     export_dir = Path('/not', 'exist')
     df = FakeDataFrame('total', fake_engine)
 
-    state = Namepspace()
+    state = Namespace()
     r = Result(state)
     r.exportdf(df, 'export', 'sqlite', str(export_dir))
 
