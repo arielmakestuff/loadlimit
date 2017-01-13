@@ -25,7 +25,7 @@ from sqlalchemy import create_engine
 
 # Local imports
 from .stat import measure, Period
-from .util import Namespace, now
+from .util import EventType, Namespace, now
 
 
 # ============================================================================
@@ -106,6 +106,11 @@ class Result:
         """Return value namespace"""
         return self._vals
 
+    @property
+    def state(self):
+        """Return state namespace"""
+        return self._state
+
 
 class Total(Result):
     """Calculate totals for non-init, non-warmup period"""
@@ -159,6 +164,13 @@ class Total(Result):
         # Create dataframe out of the timeseries and get only the response
         # field
         df = DataFrame(data, index=list(range(numiter)))
+
+        # Get only data that's after the warmup_end event
+        state = self.state
+        events = [e for e in state.event if e.type == EventType.warmup_end]
+        if events:
+            warmup_end = events[0].timestamp
+            df = df.query('end > @warmup_end')
         delta = df['response']
 
         # Calculate stats
