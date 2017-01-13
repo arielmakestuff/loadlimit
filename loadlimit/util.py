@@ -149,13 +149,15 @@ class Logger:
 
 
 EventType = Enum('EventType', ['start', 'init_start', 'init_end',
-                               'warmup_start', 'warmup_end', 'end'])
+                               'warmup_start', 'warmup_end',
+                               'client_scheduled', 'end'])
 
 
 class Event(Sequence):
     __slots__ = ('_val', )
 
-    def __init__(self, event_type, timestamp=None, *, logger=None):
+    def __init__(self, event_type, timestamp=None, *, logger=None,
+                 comment=None):
         if not isinstance(event_type, EventType):
             msg = 'event_type arg expected {} object, got {} object instead'
             raise TypeError(msg.format(EventType.__name__,
@@ -176,6 +178,8 @@ class Event(Sequence):
 
         if logger is not None:
             msg = dict(name=event_type.name, timestamp=str(timestamp))
+            if comment is not None:
+                msg.update(comment=comment)
             logger.info('EVENT: {}', json.dumps(msg))
 
     def __getitem__(self, key):
