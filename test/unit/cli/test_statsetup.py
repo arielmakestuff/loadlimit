@@ -196,7 +196,8 @@ def test_exportdf_csv(monkeypatch):
     expected_path = str(export_dir / filename)
     df = FakeDataFrame(expected_path, index_label='Name')
 
-    r = Result()
+    state = Namepspace()
+    r = Result(state)
     r.exportdf(df, 'export', 'csv', str(export_dir))
 
 
@@ -211,7 +212,8 @@ def test_exportdf_sqlite(monkeypatch):
     export_dir = Path('/not', 'exist')
     df = FakeDataFrame('total', fake_engine)
 
-    r = Result()
+    state = Namepspace()
+    r = Result(state)
     r.exportdf(df, 'export', 'sqlite', str(export_dir))
 
 

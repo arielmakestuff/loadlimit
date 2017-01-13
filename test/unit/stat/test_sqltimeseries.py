@@ -19,6 +19,7 @@ from pandas import DataFrame
 # Local imports
 from loadlimit.result import SQLTimeSeries
 from loadlimit.stat import CountStore
+from loadlimit.util import Namespace
 
 
 # ============================================================================
@@ -30,7 +31,8 @@ def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
     measure = CountStore()
     key = '42'
-    calc = SQLTimeSeries(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = SQLTimeSeries(state, statsdict=statsdict, countstore=measure)
     empty = DataFrame()
     calc.__enter__()
     calc.calculate(key, empty, empty, empty)

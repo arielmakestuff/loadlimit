@@ -20,6 +20,7 @@ import pytest
 # Local imports
 from loadlimit.result import TotalError, TotalFailure
 from loadlimit.stat import CountStore, Failure
+from loadlimit.util import Namespace
 
 
 # ============================================================================
@@ -32,7 +33,8 @@ def test_totalerror_calculate_data(statsdict, exctype):
     """Create dataframe from given error/failure data"""
     measure = CountStore()
     key = '42'
-    calc = TotalError(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = TotalError(state, statsdict=statsdict, countstore=measure)
     err = exctype('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')
@@ -60,7 +62,8 @@ def test_totalerror_calculate_nodata(statsdict, exctype):
     """Create dataframe from given error/failure data"""
     measure = CountStore()
     key = '42'
-    calc = TotalError(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = TotalError(state, statsdict=statsdict, countstore=measure)
     err = exctype('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')
@@ -82,7 +85,8 @@ def test_totalerror_export(monkeypatch, statsdict, exctype):
     """Call exportdf() if there are results"""
     measure = CountStore()
     key = '42'
-    calc = TotalError(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = TotalError(state, statsdict=statsdict, countstore=measure)
     err = exctype('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')
@@ -122,7 +126,8 @@ def test_totalfailure_calculate_data(statsdict):
     """Create dataframe from given failure data"""
     measure = CountStore()
     key = '42'
-    calc = TotalFailure(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = TotalFailure(state, statsdict=statsdict, countstore=measure)
     err = Failure('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')
@@ -149,7 +154,8 @@ def test_totalfailure_calculate_nodata(statsdict):
     """Create dataframe from given failure data"""
     measure = CountStore()
     key = '42'
-    calc = TotalFailure(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = TotalFailure(state, statsdict=statsdict, countstore=measure)
     err = Failure('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')
@@ -171,7 +177,8 @@ def test_totalfailure_export(monkeypatch, statsdict, exctype):
     """Call exportdf() if there are results"""
     measure = CountStore()
     key = '42'
-    calc = TotalFailure(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = TotalFailure(state, statsdict=statsdict, countstore=measure)
     err = Failure('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')

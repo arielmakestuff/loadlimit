@@ -20,6 +20,7 @@ import pytest
 # Local imports
 from loadlimit.result import SQLTotalError, SQLTotalFailure
 from loadlimit.stat import CountStore, Failure
+from loadlimit.util import Namespace
 
 
 # ============================================================================
@@ -32,7 +33,8 @@ def test_sqltotalerror_calculate(statsdict, exctype):
     """Create dataframe from given error data"""
     measure = CountStore()
     key = '42'
-    calc = SQLTotalError(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = SQLTotalError(state, statsdict=statsdict, countstore=measure)
     err = exctype('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')
@@ -63,7 +65,8 @@ def test_sqltotalfailure_calculate(statsdict):
     """Create dataframe from given failure data"""
     measure = CountStore()
     key = '42'
-    calc = SQLTotalFailure(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = SQLTotalFailure(state, statsdict=statsdict, countstore=measure)
     err = Failure('hello')
     end = Timestamp.now(tz='UTC')
     delta = to_timedelta(5, unit='s')

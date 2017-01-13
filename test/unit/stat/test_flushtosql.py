@@ -26,7 +26,7 @@ from loadlimit.core import BaseLoop
 from loadlimit.result import SQLTotal
 import loadlimit.stat as stat
 from loadlimit.stat import CountStore, SendTimeData
-from loadlimit.util import aiter
+from loadlimit.util import aiter, Namespace
 
 
 # ============================================================================
@@ -65,7 +65,8 @@ def test_flushtosql(testloop, num):
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
 
-    timetotal = SQLTotal(sqlengine=engine, countstore=measure)
+    state = Namespace()
+    timetotal = SQLTotal(state, sqlengine=engine, countstore=measure)
 
     # Create coro to time
     @measure(name='churn')

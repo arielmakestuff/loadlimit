@@ -19,6 +19,7 @@ from pandas import DataFrame, Timestamp, to_timedelta
 # Local imports
 from loadlimit.result import SQLTotal
 from loadlimit.stat import CountStore
+from loadlimit.util import Namespace
 
 
 # ============================================================================
@@ -32,7 +33,8 @@ def test_calculate_nodata(statsdict):
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'
-    calc = SQLTotal(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = SQLTotal(state, statsdict=statsdict, countstore=measure)
     empty = DataFrame()
     calc.__enter__()
     calc.calculate(key, empty, empty, empty)

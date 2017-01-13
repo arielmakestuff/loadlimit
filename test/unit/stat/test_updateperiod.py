@@ -24,7 +24,7 @@ from loadlimit.core import BaseLoop
 from loadlimit.result import Total
 import loadlimit.stat as stat
 from loadlimit.stat import CountStore, Failure, SendTimeData
-from loadlimit.util import aiter
+from loadlimit.util import aiter, Namespace
 
 
 # ============================================================================
@@ -45,7 +45,8 @@ def test_updateperiod_coro(testloop):
     """updateperiod updates statsdict with timeseries data points"""
 
     measure = CountStore()
-    results = Total(countstore=measure)
+    state = Namespace()
+    results = Total(state, countstore=measure)
 
     # Create coro to time
     @measure(name='churn')
@@ -204,7 +205,8 @@ def test_updateperiod_reset(testloop):
     """updateperiod clears statsdict if it gets a reset"""
 
     measure = CountStore()
-    results = Total(countstore=measure)
+    state = Namespace()
+    results = Total(state, countstore=measure)
 
     # Create coro to time
     @measure(name='churn')

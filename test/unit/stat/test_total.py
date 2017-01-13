@@ -19,6 +19,7 @@ from pandas import Timestamp, to_timedelta
 # Local imports
 import loadlimit.result as result
 import loadlimit.stat as stat
+from loadlimit.util import Namespace
 
 
 # ============================================================================
@@ -31,7 +32,8 @@ def test_noresults(statsdict):
     measure = stat.CountStore()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
-    with result.Total(statsdict=statsdict, countstore=measure) as r:
+    state = Namespace()
+    with result.Total(state, statsdict=statsdict, countstore=measure) as r:
         pass
 
     assert r.vals.results is None
@@ -48,7 +50,8 @@ def test_calculate_nodata(statsdict):
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'
-    calc = result.Total(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = result.Total(state, statsdict=statsdict, countstore=measure)
     calc.__enter__()
     calc.calculate(key, [], [], [])
 
@@ -67,7 +70,8 @@ def test_export_nodata(monkeypatch, statsdict):
     measure = stat.CountStore()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
-    calc = result.Total(statsdict=statsdict, countstore=measure)
+    state = Namespace()
+    calc = result.Total(state, statsdict=statsdict, countstore=measure)
     called = False
 
     def fake_exportdf(self, df, name, export_type, exportdir):
