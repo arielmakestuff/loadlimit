@@ -337,7 +337,8 @@ class MainLoop(BaseLoop):
             size = numclients
         if size == numclients:
             delay = 0
-        state.event.append(Event(EventType.warmup_start, logger=self.logger))
+        event = state.event
+        event.append(Event(EventType.warmup_start, logger=self.logger))
         while numsched < numclients:
             if not state.reschedule:
                 break
@@ -345,8 +346,11 @@ class MainLoop(BaseLoop):
                 c = clients.pop()
                 ensure_future(c(state), loop=loop)
             numsched = numsched + size
+            comment = '{} clients scheduled'.format(numsched)
+            event.append(Event(EventType.client_scheduled, logger=self.logger,
+                               comment=comment))
             await sleep(delay)
-        state.event.append(Event(EventType.warmup_end, logger=self.logger))
+        event.append(Event(EventType.warmup_end, logger=self.logger))
 
     def init(self, config, state):
         """Initialize clients"""
