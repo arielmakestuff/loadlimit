@@ -36,7 +36,8 @@ from .util import Namespace, now
 class Result:
     """Calculate result DataFrame from a Period"""
 
-    def __init__(self, statsdict=None, countstore=None):
+    def __init__(self, state, statsdict=None, countstore=None):
+        self._state = state
         self._statsdict = Period() if statsdict is None else statsdict
         self._countstore = measure if countstore is None else countstore
         self._vals = Namespace()
@@ -107,7 +108,7 @@ class Result:
 
 
 class Total(Result):
-    """Calculate totals"""
+    """Calculate totals for non-init, non-warmup period"""
 
     def __enter__(self):
         ret = super().__enter__()
@@ -365,9 +366,9 @@ class TotalFailure(GeneralError):
 class SQLResult:
     """Define iterating over values stored in an sql db"""
 
-    def __init__(self, statsdict=None, countstore=None, sqltbl='period',
+    def __init__(self, state, statsdict=None, countstore=None, sqltbl='period',
                  sqlengine=None):
-        super().__init__(statsdict, countstore)
+        super().__init__(state, statsdict, countstore)
         vals = self.vals
         vals.sqltbl = sqltbl
         vals.sqlengine = sqlengine
