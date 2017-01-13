@@ -343,6 +343,8 @@ class MainLoop(BaseLoop):
             if not state.reschedule:
                 break
             for i in range(size):
+                if not clients:
+                    break
                 c = clients.pop()
                 ensure_future(c(state), loop=loop)
             numsched = numsched + size
