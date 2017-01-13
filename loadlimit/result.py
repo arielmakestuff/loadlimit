@@ -166,11 +166,11 @@ class Total(Result):
         df = DataFrame(data, index=list(range(numiter)))
 
         # Get only data that's after the warmup_end event
-        state = self.state
-        events = [e for e in state.event if e.type == EventType.warmup_end]
-        if events:
-            warmup_end = events[0].timestamp
-            df = df.query('end > @warmup_end')
+        # state = self.state
+        # events = [e for e in state.event if e.type == EventType.warmup_end]
+        # if events:
+        #     warmup_end = events[0].timestamp
+        #     df = df.query('end > @warmup_end')
         delta = df['response']
 
         # Calculate stats
