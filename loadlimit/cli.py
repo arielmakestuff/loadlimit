@@ -689,7 +689,8 @@ class StatSetup:
         countstore = self._countstore
 
         if llconfig['cache']['type'] == 'memory':
-            self._calcobj = tuple(c(statsdict=statsdict, countstore=countstore)
+            self._calcobj = tuple(c(state, statsdict=statsdict,
+                                    countstore=countstore)
                                   for c in [Total, TimeSeries, TotalError,
                                             TotalFailure, ErrorTimeSeries,
                                             FailureTimeSeries])
@@ -699,7 +700,8 @@ class StatSetup:
             connstr = 'sqlite:///{}'.format(cachefile)
             state.sqlengine = engine = create_engine(connstr)
             self._calcobj = tuple(
-                c(statsdict=statsdict, sqlengine=engine, countstore=countstore)
+                c(state, statsdict=statsdict, sqlengine=engine,
+                  countstore=countstore)
                 for c in [SQLTotal, SQLTimeSeries, SQLTotalError,
                           SQLTotalFailure])
 
