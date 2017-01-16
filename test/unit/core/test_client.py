@@ -74,6 +74,7 @@ def test_init_mixedargs(testloop):
 
     class Five(TaskABC):
         """five"""
+        __slots__ = ()
 
         async def __call__(self, state, *, clientid=None):
             """call"""

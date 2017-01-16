@@ -63,6 +63,7 @@ class FakeSourceFileLoader:
 from loadlimit.core import TaskABC
 
 class TestTask(TaskABC):
+    __slots__ = ()
 
     async def __call__(self, state, *, clientid=None):
         state.value += 1

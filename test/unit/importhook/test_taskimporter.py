@@ -108,6 +108,7 @@ class FakeModuleWithTasks(FakeSourceFileLoader):
 from loadlimit.core import TaskABC
 
 class TestTask(TaskABC):
+    __slots__ = ('_val', )
 
     def __init__(self):
         self._val = None

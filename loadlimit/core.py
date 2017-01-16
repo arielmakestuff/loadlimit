@@ -289,6 +289,7 @@ class BaseLoop:
 
 class TaskABC(metaclass=ABCMeta):
     """ABC definition of a loadlimit task"""
+    __slots__ = ()
 
     @abstractmethod
     async def __call__(self, state, *, clientid=None):
@@ -312,6 +313,7 @@ class TaskABC(metaclass=ABCMeta):
 
 class Task(TaskABC):
     """Wraps coroutine in a task"""
+    __slots__ = ('_corofunc', )
 
     def __init__(self, corofunc):
         if not iscoroutinefunction(corofunc):
@@ -338,6 +340,7 @@ class Task(TaskABC):
 
 class Client(TaskABC):
     """Determine how to run a set of tasks"""
+    __slots__ = ('_id', '_option', '_corofunc')
     mindelay = 0
     maxdelay = 0
 

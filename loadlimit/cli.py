@@ -218,6 +218,7 @@ def tqdm_context(config, state, *, name=None, sched=False, **kwargs):
 
 class TQDMClient(Client):
     """tqdm-aware client"""
+    __slots__ = ()
 
     async def __call__(self, state, *, clientid=None):
         if clientid is None:
