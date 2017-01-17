@@ -12,6 +12,7 @@
 
 
 # Stdlib imports
+import asyncio
 from collections import defaultdict
 from os.path import splitext
 import sys
@@ -115,6 +116,62 @@ def test_runloop(monkeypatch, testloop, modpath):
 
     assert state.value > 0
     print(state.value)
+
+
+# ============================================================================
+#
+# ============================================================================
+
+
+@pytest.yield_fixture
+def fake_proactorloop(monkeypatch):
+
+    def fake_proactor_event_loop():
+        return 42
+
+    if sys.platform == 'win32':
+        monkeypatch.setattr(asyncio, 'ProactorEventLoop', fake_proactor_event_loop)
+        yield
+    else:
+        monkeypatch.setattr(sys, 'platform', 'win32')
+        asyncio.ProactorEventLoop = fake_proactor_event_loop
+        yield
+        delattr(asyncio, 'ProactorEventLoop')
+
+
+@pytest.mark.usefixtures('fake_proactorloop')
+def test_use_proactoreventloop(monkeypatch):
+    """Test that ProActorEventLoop is created"""
+
+    class StopTest(Exception):
+        pass
+
+    monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
+    monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',
+                        FakeSourceFileLoader)
+
+    def fake_set_event_loop(l):
+        nonlocal loopval
+        loopval = l
+        raise StopTest
+
+    def fake_processoptions(c, s):
+        raise RuntimeError
+
+    monkeypatch.setattr(asyncio, 'set_event_loop', fake_set_event_loop)
+    monkeypatch.setattr(cli, 'process_options', fake_processoptions)
+
+    taskfile = 'a_0.py'
+    config = defaultdict(dict)
+    state = Namespace()
+    args = [cli.PROGNAME, '-d', '1s', '--no-progressbar', taskfile]
+    loopval = None
+
+    runloop = cli.RunLoop()
+    with pytest.raises(StopTest):
+        runloop.init(config, args, state)
+
+    assert loopval == 42
 
 
 # ============================================================================

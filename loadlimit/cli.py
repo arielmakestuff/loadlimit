@@ -825,6 +825,11 @@ class RunLoop:
         """Initial setup"""
         llconfig = config['loadlimit']
 
+        # Setup win32 event loop
+        if sys.platform == 'win32':
+            loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(loop)
+
         # Process cli options
         process_options(config, args)
 
