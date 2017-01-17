@@ -34,6 +34,10 @@ from pytz import timezone
 from sqlalchemy import create_engine
 from tqdm import tqdm
 
+# Import uvloop if non-win32 platform
+if sys.platform != 'win32':
+    import uvloop
+
 # Local imports
 from . import channel
 from . import stat
@@ -829,6 +833,8 @@ class RunLoop:
         if sys.platform == 'win32':
             loop = asyncio.ProactorEventLoop()
             asyncio.set_event_loop(loop)
+        else:
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
         # Process cli options
         process_options(config, args)

@@ -174,6 +174,66 @@ def test_use_proactoreventloop(monkeypatch):
     assert loopval == 42
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='windows')
+def test_use_uvloop(monkeypatch):
+    """Test that uvloop is set as default loop"""
+    import uvloop
+
+    class StopTest(Exception):
+        pass
+
+    monkeypatch.setattr(loadlimit.importhook, 'lstaskfiles', fake_lstaskfiles)
+    monkeypatch.setattr(loadlimit.importhook, 'SourceFileLoader',
+                        FakeSourceFileLoader)
+
+    def fake_eventlooppolicy():
+        return 42
+
+    def fake_set_event_loop_policy(l):
+        nonlocal loopval
+        loopval = l
+        raise StopTest
+
+    def fake_processoptions(c, s):
+        raise RuntimeError
+
+    monkeypatch.setattr(uvloop, 'EventLoopPolicy', fake_eventlooppolicy)
+    monkeypatch.setattr(asyncio, 'set_event_loop_policy', fake_set_event_loop_policy)
+    monkeypatch.setattr(cli, 'process_options', fake_processoptions)
+
+    taskfile = 'a_0.py'
+    config = defaultdict(dict)
+    state = Namespace()
+    args = [cli.PROGNAME, '-d', '1s', '--no-progressbar', taskfile]
+    loopval = None
+
+    runloop = cli.RunLoop()
+    with pytest.raises(StopTest):
+        runloop.init(config, args, state)
+
+    assert loopval == 42
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='windows')
+def test_uvloop_imported():
+    """Test that uvloop is imported"""
+    import uvloop
+    assert hasattr(cli, 'uvloop')
+    assert cli.uvloop is uvloop
+
+
+def test_uvloop_notimported(monkeypatch):
+    """Test that uvloop is not imported on win32 platform"""
+    if 'loadlimit.cli' in sys.modules:
+        del sys.modules['loadlimit.cli']
+
+    if sys.platform != 'win32':
+        monkeypatch.setattr(sys, 'platform', 'win32')
+
+    import loadlimit.cli as cli
+    assert not hasattr(cli, 'uvloop')
+
+
 # ============================================================================
 #
 # ============================================================================
