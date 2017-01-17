@@ -85,6 +85,9 @@ class FakeSourceFileLoader:
         src = self.mksrc()
         return mkmodule(src, name)
 
+    def create_module(self, spec):
+        """Fake create_module"""
+
     def exec_module(self, module):
         """Fake exec_module"""
         src = self.mksrc()
