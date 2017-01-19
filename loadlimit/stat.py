@@ -65,10 +65,13 @@ timedata = DataChannel(name='timedata')
 
 
 class Count:
-    __slots__ = ('success', 'error', 'failure', 'client')
+    __slots__ = ('success', 'window_start', 'window_success', 'error',
+                 'failure', 'client')
 
     def __init__(self):
         self.success = 0
+        self.window_start = None
+        self.window_success = 0
         self.error = defaultdict(lambda: 0)
         self.failure = defaultdict(lambda: 0)
         self.client = set()
@@ -92,6 +95,8 @@ class Count:
     def resetclient(self):
         """Set client to a new empty set"""
         self.client = set()
+        self.window_start = None
+        self.window_success = 0
 
     def sum(self):
         """Sum of all counts
@@ -146,10 +151,12 @@ class CountStore(defaultdict):
                 """Measure coroutine runtime"""
                 count = self[name]
                 start = self.start
+                curstart = perf_counter()
+                curcount = count.success
                 ret = None
                 if start is None:
                     self.start_date = now()
-                    self.start = start = perf_counter()
+                    self.start = start = curstart
                 try:
                     ret = await corofunc(*args, **kwargs)
                 except Failure as e:
@@ -158,6 +165,10 @@ class CountStore(defaultdict):
                 except Exception as e:
                     count.error[repr(e)] += 1
                 else:
+                    if (count.window_start is None or
+                            curstart < count.window_start):
+                        count.window_start = curstart
+                        count.window_success = curcount
                     count.success += 1
                     count.client.add(clientid)
                 finally:
@@ -222,7 +233,7 @@ class SendTimeData:
             if self.stop:
                 break
             curtime = perf_counter()
-            delta = curtime - prevtime
+            delta = (prevtime, curtime)
             snapshot = deepcopy(countstore)
             countstore.allresetclient()
             await sendfunc(delta, snapshot, prevsnapshot)
@@ -251,9 +262,16 @@ class SendTimeData:
     async def mkdata(self, delta, end_date, key, count, prevcount, *,
                      reset=False):
         """Calculate rate and response time"""
+        prevtime, curtime = delta
         numclient = len(count.client)
-        success_diff = (count.success - prevcount.success if prevcount
-                        else count.success)
+        window_start = count.window_start
+        if window_start and window_start < prevtime:
+            delta = curtime - window_start
+            success_diff = count.success - count.window_success
+        else:
+            delta = curtime - prevtime
+            success_diff = (count.success - prevcount.success if prevcount
+                            else count.success)
         rate = (success_diff / delta) if delta > 0 else 0
         if end_date is None:
             end_date = now()

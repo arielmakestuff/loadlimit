@@ -136,8 +136,9 @@ async def test_mkdata_no_prevcount():
     count.failure['now'] += 1
     count.client.add(1)
     s = SendTimeData(c)
+    delta = (0, 1)
 
-    data = await s.mkdata(1, 42, key, c[key], None)
+    data = await s.mkdata(delta, 42, key, c[key], None)
 
     assert isinstance(data, CountStoreData)
     assert data.name == key
@@ -157,8 +158,9 @@ async def test_mkdata_zero_diff():
     c[key].success += 1
     count = c[key]
     s = SendTimeData(c)
+    delta = (0, 1)
 
-    data = await s.mkdata(1, 42, key, count, count)
+    data = await s.mkdata(delta, 42, key, count, count)
 
     assert data.rate == 0
 
@@ -173,8 +175,9 @@ async def test_mkdata_diff():
     prevcount = deepcopy(count)
     prevcount.success -= 10
     s = SendTimeData(c)
+    delta = (0, 2)
 
-    data = await s.mkdata(2, 42, key, count, prevcount)
+    data = await s.mkdata(delta, 42, key, count, prevcount)
 
     assert data.rate == 5
 
@@ -189,8 +192,9 @@ async def test_mkdata_noenddate():
     prevcount = deepcopy(count)
     prevcount.success -= 10
     s = SendTimeData(c)
+    delta = (0, 2)
 
-    data = await s.mkdata(2, None, key, count, prevcount)
+    data = await s.mkdata(delta, None, key, count, prevcount)
 
     curdate = now()
     assert data.end is not None
@@ -209,10 +213,59 @@ async def test_mkdata_reset(val):
     prevcount = deepcopy(count)
     prevcount.success -= 10
     s = SendTimeData(c)
+    delta = (0, 2)
 
-    data = await s.mkdata(2, None, key, count, prevcount, reset=val)
+    data = await s.mkdata(delta, None, key, count, prevcount, reset=val)
     assert hasattr(data, 'reset')
     assert data.reset is val
+
+
+@pytest.mark.asyncio
+async def test_mkdata_window_data():
+    """Use window_start to calculate delta"""
+    key = 'hello'
+    c = CountStore()
+    count = c[key]
+    count.success = 43
+    prevcount = None
+    s = SendTimeData(c)
+    curtime = perf_counter()
+    prevtime = curtime - 1
+    delta = (prevtime, curtime)
+    count.window_start = prevtime - 1
+    count.window_success = 1
+
+    expected_success_diff = count.success - count.window_success
+    expected_delta = curtime - count.window_start
+
+    data = await s.mkdata(delta, None, key, count, prevcount)
+
+    assert data.delta == expected_delta
+    assert data.rate == (expected_success_diff / expected_delta)
+
+
+@pytest.mark.asyncio
+async def test_mkdata_ignore_window_data():
+    """Ignore window_start"""
+    key = 'hello'
+    c = CountStore()
+    count = c[key]
+    count.success = 42
+    prevcount = None
+    s = SendTimeData(c)
+    curtime = perf_counter()
+    prevtime = curtime - 1
+    delta = (prevtime, curtime)
+    count.window_start = prevtime + 42
+    count.window_success = 1
+
+    expected_success_diff = 42
+    expected_delta = 1
+
+    data = await s.mkdata(delta, None, key, count, prevcount)
+
+    assert data.delta == expected_delta
+    assert data.rate == (expected_success_diff / expected_delta)
 
 
 # ============================================================================
@@ -242,7 +295,8 @@ async def test_send_send():
 
     with channel.open() as r:
         r.start()
-        await s.send(1, c, None)
+        delta = (0, 1)
+        await s.send(delta, c, None)
         await stat.timedata.join()
 
     curdate = now()
@@ -257,7 +311,7 @@ async def test_send_send():
 async def test_send_diff():
     """Sends rate since previous rate"""
     key = 'hello'
-    delta = 2
+    prevtime, curtime = delta = (0, 2)
 
     prev = CountStore()
     prev.end_date = now()
@@ -268,7 +322,7 @@ async def test_send_diff():
     count.error['what'] += 1
     count.failure['now'] += 1
     count.client.add(1)
-    snap.end_date = now() + to_timedelta(delta, 's')
+    snap.end_date = now() + to_timedelta(delta[-1], 's')
     channel = stat.timedata
     s = SendTimeData(snap, channel=channel)
     checkdata = None
@@ -286,7 +340,7 @@ async def test_send_diff():
     assert isinstance(checkdata, CountStoreData)
     assert checkdata.name == key
     assert checkdata.end == snap.end_date
-    assert round(checkdata.delta) == delta
+    assert round(checkdata.delta) == curtime - prevtime
     assert checkdata.rate == 5
     assert checkdata.error == count.error
     assert checkdata.failure == count.failure
@@ -298,7 +352,7 @@ async def test_send_diff():
 async def test_send_reset():
     """Set reset arg"""
     key = 'hello'
-    delta = 2
+    prevtime, curtime = delta = (0, 2)
 
     prev = CountStore()
     prev.end_date = now()
@@ -310,7 +364,7 @@ async def test_send_reset():
     count.error['what'] += 1
     count.failure['now'] += 1
     count.client.add(1)
-    snap.end_date = now() + to_timedelta(delta, 's')
+    snap.end_date = now() + to_timedelta(curtime, 's')
     channel = stat.timedata
     s = SendTimeData(snap, flushwait=to_timedelta(0, unit='s'),
                      channel=channel)
@@ -335,7 +389,7 @@ async def test_send_reset():
         count.error['what'] += 1
         count.failure['now'] += 1
         count.client.add(1)
-        snap.end_date = now() + to_timedelta(delta, 's')
+        snap.end_date = now() + to_timedelta(curtime, 's')
 
         await s.send(delta, snap, prev)
         await channel.join()

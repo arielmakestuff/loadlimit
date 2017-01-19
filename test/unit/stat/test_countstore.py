@@ -14,6 +14,7 @@
 # Stdlib imports
 from asyncio import iscoroutinefunction
 from collections import defaultdict
+from time import perf_counter
 
 # Third-party imports
 import pytest
@@ -86,7 +87,7 @@ def test_count_addclient():
 
 
 def test_count_resetclient():
-    """Adding a client adds the client id"""
+    """Remove all clients on reset"""
     c = Count()
     for i in range(10):
         clientid = id(i)
@@ -126,6 +127,17 @@ def test_count_sum(success, error, failure):
         expected += 1
 
     assert c.sum() == expected
+
+
+def test_count_resetclient_window_attr():
+    """Reset window_start and window_success attributes"""
+    c = Count()
+    c.window_start = perf_counter()
+    c.window_success = 42
+
+    c.resetclient()
+    assert c.window_start is None
+    assert c.window_success == 0
 
 
 # ============================================================================
@@ -194,6 +206,7 @@ def test_countstore_call_decorator():
 async def test_countstore_measure_setkey(monkeypatch):
     """Adds name as a CountStore key"""
     measure = CountStore()
+    #  measure['run'].success = 42
     called = False
 
     @measure(name='run')
@@ -212,6 +225,91 @@ async def test_countstore_measure_setkey(monkeypatch):
     assert measure['run'].sum() == 1
     assert measure['run'].success == 1
     assert len(measure['run'].client) == 1
+    assert measure['run'].window_start is not None
+    assert isinstance(measure['run'].window_start, float)
+    assert measure['run'].window_start > 0
+
+
+@pytest.mark.asyncio
+async def test_countstore_measure_nowindow(monkeypatch):
+    """Don't set window_start if it contains an older value"""
+    measure = CountStore()
+    c = measure['run']
+    c.success = 41
+    expected_window_start = perf_counter() - 10
+    c.window_start = expected_window_start
+    c.window_success = 999
+    called = False
+
+    @measure(name='run')
+    async def noop():
+        """Do nothing"""
+        nonlocal called
+        called = True
+
+    await noop()
+
+    assert len(measure) == 1
+    assert list(measure.keys()) == ['run']
+    assert called is True
+    assert measure['run'].sum() == 42
+    assert measure['run'].success == 42
+    assert len(measure['run'].client) == 1
+    assert measure['run'].window_start == expected_window_start
+    assert measure['run'].window_success == 999
+
+
+@pytest.mark.asyncio
+async def test_countstore_measure_window_first(monkeypatch):
+    """Sets window_start and window_success if not set"""
+    measure = CountStore()
+    measure['run'].success = 42
+    called = False
+
+    @measure(name='run')
+    async def noop():
+        """Do nothing"""
+        nonlocal called
+        called = True
+
+    await noop()
+
+    assert len(measure) == 1
+    assert list(measure.keys()) == ['run']
+    assert called is True
+    assert measure['run'].sum() == 43
+    assert measure['run'].success == 43
+    assert len(measure['run'].client) == 1
+    assert measure['run'].window_start is not None
+    assert isinstance(measure['run'].window_start, float)
+    assert measure['run'].window_start > 0
+    assert measure['run'].window_success == 42
+
+
+@pytest.mark.asyncio
+async def test_countstore_measure_window_overwrite(monkeypatch):
+    """Update window attributes if new window_start is older"""
+    measure = CountStore()
+    c = measure['run']
+    c.success = 42
+    window_start = perf_counter() + 9999
+    c.window_start = window_start
+    c.window_success = 9999
+    called = False
+
+    @measure(name='run')
+    async def noop():
+        """Do nothing"""
+        nonlocal called
+        called = True
+
+    await noop()
+
+    assert called is True
+    assert c.window_start is not None
+    assert isinstance(c.window_start, float)
+    assert c.window_start < window_start
+    assert c.window_success == 42
 
 
 @pytest.mark.asyncio
