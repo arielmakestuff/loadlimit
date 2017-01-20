@@ -14,12 +14,11 @@
 # Stdlib imports
 import asyncio
 from asyncio import Lock
-from copy import deepcopy
-from hashlib import sha1
-from itertools import count
 from collections import defaultdict, namedtuple
+from copy import deepcopy
 from functools import wraps
-from itertools import chain
+from hashlib import sha1
+from itertools import chain, count
 from time import perf_counter
 
 # Third-party imports
@@ -65,13 +64,15 @@ timedata = DataChannel(name='timedata')
 
 
 class Count:
-    __slots__ = ('success', 'window_start', 'window_success', 'error',
-                 'failure', 'client')
+    __slots__ = ('success', 'window_start', 'window_success', '_window_client',
+                 '_addto_window_client', 'error', 'failure', 'client')
 
     def __init__(self):
         self.success = 0
         self.window_start = None
         self.window_success = 0
+        self._addto_window_client = True
+        self._window_client = []
         self.error = defaultdict(lambda: 0)
         self.failure = defaultdict(lambda: 0)
         self.client = set()
@@ -97,6 +98,7 @@ class Count:
         self.client = set()
         self.window_start = None
         self.window_success = 0
+        self._addto_window_client = True
 
     def sum(self):
         """Sum of all counts
@@ -106,6 +108,29 @@ class Count:
         """
         return sum(chain([self.success], self.error.values(),
                          self.failure.values()))
+
+    def pop_window_client(self):
+        """Return current window_client value and reset"""
+        ret = sum(self._window_client)
+        self._window_client = []
+        self._addto_window_client = True
+        return ret
+
+    @property
+    def window_client(self):
+        """Return last number of window clients."""
+        window_client = self._window_client
+        return 0 if not window_client else window_client[-1]
+
+    @window_client.setter
+    def window_client(self, val):
+        """Set the value of internal window_client attribute"""
+        window_client = self._window_client
+        if self._addto_window_client:
+            window_client.append(val)
+            self._addto_window_client = False
+        else:
+            window_client[-1] = val
 
 
 class CountStore(defaultdict):
@@ -171,6 +196,7 @@ class CountStore(defaultdict):
                         count.window_success = curcount
                     count.success += 1
                     count.client.add(clientid)
+                    count.window_client = count.window_client + 1
                 finally:
                     self.end = perf_counter()
                     self.end_date = now()
@@ -183,9 +209,13 @@ class CountStore(defaultdict):
 
         return deco(corofunc)
 
-    def allresetclient(self):
+    def allresetclient(self, prevtime=None):
         """Call resetclient() on every stored Count object"""
         for v in self.values():
+            if prevtime is not None:
+                window_start = v.window_start
+                if window_start and window_start < prevtime:
+                    v.pop_window_client()
             v.resetclient()
 
     def reset(self):
@@ -235,7 +265,7 @@ class SendTimeData:
             curtime = perf_counter()
             delta = (prevtime, curtime)
             snapshot = deepcopy(countstore)
-            countstore.allresetclient()
+            countstore.allresetclient(prevtime)
             await sendfunc(delta, snapshot, prevsnapshot)
             prevtime = curtime
             prevsnapshot = snapshot
@@ -263,15 +293,18 @@ class SendTimeData:
                      reset=False):
         """Calculate rate and response time"""
         prevtime, curtime = delta
-        numclient = len(count.client)
         window_start = count.window_start
         if window_start and window_start < prevtime:
             delta = curtime - window_start
             success_diff = count.success - count.window_success
+            numclient = count.pop_window_client()
+            print(delta, success_diff, numclient,
+                  self._countstore[key]._window_client)
         else:
             delta = curtime - prevtime
             success_diff = (count.success - prevcount.success if prevcount
                             else count.success)
+            numclient = len(count.client)
         rate = (success_diff / delta) if delta > 0 else 0
         if end_date is None:
             end_date = now()
