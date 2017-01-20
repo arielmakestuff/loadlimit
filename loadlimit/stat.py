@@ -195,8 +195,10 @@ class CountStore(defaultdict):
                         count.window_start = curstart
                         count.window_success = curcount
                     count.success += 1
+                    before = len(count.client)
                     count.client.add(clientid)
-                    count.window_client = count.window_client + 1
+                    after = len(count.client) - before
+                    count.window_client = count.window_client + after
                 finally:
                     self.end = perf_counter()
                     self.end_date = now()
