@@ -415,6 +415,76 @@ async def test_countstore_measure_error(exctype):
     assert count.error[repr(err)] == 1
 
 
+def test_countstore_window_client_getter_zero():
+    """Return 0 if _window_client attr is empty"""
+    store = CountStore()
+    c = store['run']
+    assert c.window_client == 0
+
+
+def test_countstore_window_client_getter_lastitem():
+    """Return value of last item in _window_client list"""
+    store = CountStore()
+    c = store['run']
+    c._window_client.extend([0, 1, 3, 42])
+    assert c.window_client == 42
+
+
+def test_countstore_window_client_setter_add():
+    """Add value to _window_client if _addto_window_client is True"""
+    store = CountStore()
+    c = store['run']
+    c._addto_window_client = True
+    c.window_client = 42
+    assert c._window_client == [42]
+    assert c._addto_window_client is False
+
+
+def test_countstore_window_client_setter_overwrite():
+    """Overwrite last value of _window_client if _addto_window_client is False"""
+    store = CountStore()
+    c = store['run']
+    c._addto_window_client = False
+    c._window_client.extend(range(5))
+    c.window_client = 42
+    assert c._addto_window_client is False
+    assert c._window_client == list(range(4)) + [42]
+
+
+def test_countstore_pop_window_client_novals():
+    """Return 0 if _window_client is empty"""
+    store = CountStore()
+    c = store['run']
+    ret = c.pop_window_client()
+    assert ret == 0
+
+
+def test_countstore_pop_window_client_1val():
+    """Return value of single item in _window_client"""
+    store = CountStore()
+    c = store['run']
+    c.window_client = 42
+    assert c._addto_window_client is False
+
+    ret = c.pop_window_client()
+    assert ret == 42
+    assert not c._window_client
+    assert c._addto_window_client is True
+
+
+def test_countstore_pop_window_client_multivals():
+    """Return sum of all items in _window_client with multiple items"""
+    store = CountStore()
+    c = store['run']
+    c._window_client.extend(range(5))
+    c._window_client.append(42)
+
+    ret = c.pop_window_client()
+    assert ret == sum(range(5)) + 42
+    assert not c._window_client
+    assert c._addto_window_client is True
+
+
 # ============================================================================
 # Test CountStore.allresetclient()
 # ============================================================================
