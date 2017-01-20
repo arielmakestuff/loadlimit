@@ -298,8 +298,6 @@ class SendTimeData:
             delta = curtime - window_start
             success_diff = count.success - count.window_success
             numclient = count.pop_window_client()
-            print(delta, success_diff, numclient,
-                  self._countstore[key]._window_client)
         else:
             delta = curtime - prevtime
             success_diff = (count.success - prevcount.success if prevcount
