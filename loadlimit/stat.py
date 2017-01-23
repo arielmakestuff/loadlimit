@@ -14,9 +14,9 @@
 # Stdlib imports
 import asyncio
 from asyncio import Lock
-from collections import defaultdict, namedtuple
+from collections import defaultdict, namedtuple, OrderedDict
 from copy import deepcopy
-from functools import wraps
+from functools import partial, wraps
 from hashlib import sha1
 from itertools import chain, count
 from time import perf_counter
@@ -64,30 +64,37 @@ timedata = DataChannel(name='timedata')
 
 
 class Count:
-    __slots__ = ('success', 'window_start', 'window_success', '_window_client',
-                 '_addto_window_client', 'error', 'failure', 'client')
+    __slots__ = ('frames', 'window_start', 'window_end', 'window_success',
+                 'window_error', 'window_failure', 'success', 'error',
+                 'failure', 'client')
 
     def __init__(self):
-        self.success = 0
+        self.frames = None
         self.window_start = None
+        self.window_end = None
         self.window_success = 0
-        self._addto_window_client = True
-        self._window_client = []
+        self.window_error = defaultdict(lambda: 0)
+        self.window_failure = defaultdict(lambda: 0)
+
+        self.success = 0
         self.error = defaultdict(lambda: 0)
         self.failure = defaultdict(lambda: 0)
         self.client = set()
 
-    def addsuccess(self):
+    def addsuccess(self, val=1):
         """Increment the success count"""
-        self.success += 1
+        self.success += val
+        self.window_success += val
 
-    def adderror(self, err):
+    def adderror(self, err, val=1):
         """Add an error and increment its count"""
-        self.error[err] += 1
+        self.error[err] += val
+        self.window_error[err] += val
 
-    def addfailure(self, fail):
+    def addfailure(self, fail, val=1):
         """Add a failure and increment its count"""
-        self.failure[fail] += 1
+        self.failure[fail] += val
+        self.window_failure[fail] += val
 
     def addclient(self, clientid):
         """Increment the client count"""
@@ -96,9 +103,35 @@ class Count:
     def resetclient(self):
         """Set client to a new empty set"""
         self.client = set()
-        self.window_start = None
         self.window_success = 0
-        self._addto_window_client = True
+        self.window_error = defaultdict(lambda: 0)
+        self.window_failure = defaultdict(lambda: 0)
+        self.window_end = None
+        if self.frames:
+            key = next(iter(self.frames))
+            self.window_start = self.frames[key].window_start
+        else:
+            self.window_start = None
+
+    def update(self, old):
+        """Update values with values of old"""
+        # Update client ids
+        self.client.update(old.client)
+
+        # Update success
+        self.addsuccess(old.success)
+
+        # Dot optimizations
+        adderror = self.adderror
+        addfailure = self.addfailure
+
+        # Update errors
+        for errtxt, val in old.error.items():
+            adderror(errtxt, val)
+
+        # Update failures
+        for errtxt, val in old.failure.items():
+            addfailure(errtxt, val)
 
     def sum(self):
         """Sum of all counts
@@ -108,29 +141,6 @@ class Count:
         """
         return sum(chain([self.success], self.error.values(),
                          self.failure.values()))
-
-    def pop_window_client(self):
-        """Return current window_client value and reset"""
-        ret = sum(self._window_client)
-        self._window_client = []
-        self._addto_window_client = True
-        return ret
-
-    @property
-    def window_client(self):
-        """Return last number of window clients."""
-        window_client = self._window_client
-        return 0 if not window_client else window_client[-1]
-
-    @window_client.setter
-    def window_client(self, val):
-        """Set the value of internal window_client attribute"""
-        window_client = self._window_client
-        if self._addto_window_client:
-            window_client.append(val)
-            self._addto_window_client = False
-        else:
-            window_client[-1] = val
 
 
 class CountStore(defaultdict):
@@ -159,6 +169,85 @@ class CountStore(defaultdict):
 
         return copy
 
+    def _getoldframe(self, curstart, window):
+        """Get the oldest frame"""
+        allframes = window.frames
+
+        # Get oldest frame key
+        key = next(iter(allframes))
+        cur_is_oldest = (key == curstart)
+
+        # Pop current frame
+        curframe = allframes.pop(curstart)
+
+        # Get oldest frame
+        oldframe = curframe if cur_is_oldest else allframes[key]
+        return key, oldframe
+
+    def mkwrapper(self, corofunc, *, name=None, clientid=None):
+        """Create corofunc wrapper"""
+
+        @wraps(corofunc)
+        async def wrapper(*args, **kwargs):
+            """Measure coroutine runtime"""
+            window = self[name]
+            start = self.start
+            curstart = perf_counter()
+
+            # Add the first frame
+            if window.frames is None:
+                window.frames = OrderedDict()
+            window.frames[curstart] = f = Count()
+            f.window_start = curstart
+
+            # Set the window's start time
+            if window.window_start is None:
+                window.window_start = curstart
+
+            # Set countstore's start time
+            if start is None:
+                self.start_date = now()
+                self.start = start = curstart
+
+            # Default values
+            ret = None
+            failure = None
+            error = None
+
+            # Call the wrapped corofunc
+            try:
+                ret = await corofunc(*args, **kwargs)
+            except Failure as e:
+                failure = str(e.args[0])
+            except Exception as e:
+                error = repr(e)
+            finally:
+                self.end = curend = perf_counter()
+                self.end_date = now()
+
+            # Get oldest frame, this also removes the current frame
+            key, oldframe = self._getoldframe(curstart, window)
+
+            # Update oldest frame
+            if failure is not None:
+                oldframe.addfailure(failure, 1)
+            elif error is not None:
+                oldframe.adderror(error, 1)
+            else:
+                oldframe.addsuccess(1)
+                oldframe.client.add(clientid)
+
+            # Set window's end time
+            window.window_end = curend
+
+            # If oldframe was popped, add its values to current window
+            if key == curstart:
+                window.update(oldframe)
+
+            return ret
+
+        return wrapper
+
     def __call__(self, corofunc=None, *, name=None, clientid=None):
         """Decorator that records rate and response time of a corofunc"""
         if name is None:
@@ -168,56 +257,15 @@ class CountStore(defaultdict):
                    format(type(name).__name__))
             raise TypeError(msg)
 
-        def deco(corofunc):
-            """Function to decorate corofunc"""
-
-            @wraps(corofunc)
-            async def wrapper(*args, **kwargs):
-                """Measure coroutine runtime"""
-                count = self[name]
-                start = self.start
-                curstart = perf_counter()
-                curcount = count.success
-                ret = None
-                if start is None:
-                    self.start_date = now()
-                    self.start = start = curstart
-                try:
-                    ret = await corofunc(*args, **kwargs)
-                except Failure as e:
-                    failure = str(e.args[0])
-                    count.failure[failure] += 1
-                except Exception as e:
-                    count.error[repr(e)] += 1
-                else:
-                    if (count.window_start is None or
-                            curstart < count.window_start):
-                        count.window_start = curstart
-                        count.window_success = curcount
-                    count.success += 1
-                    before = len(count.client)
-                    count.client.add(clientid)
-                    after = len(count.client) - before
-                    count.window_client = count.window_client + after
-                finally:
-                    self.end = perf_counter()
-                    self.end_date = now()
-                return ret
-
-            return wrapper
-
+        deco = partial(self.mkwrapper, name=name, clientid=clientid)
         if corofunc is None:
             return deco
 
         return deco(corofunc)
 
-    def allresetclient(self, prevtime=None):
+    def allresetclient(self):
         """Call resetclient() on every stored Count object"""
         for v in self.values():
-            if prevtime is not None:
-                window_start = v.window_start
-                if window_start and window_start < prevtime:
-                    v.pop_window_client()
             v.resetclient()
 
     def reset(self):
@@ -256,28 +304,20 @@ class SendTimeData:
         wait = self._flushwait
         countstore = self._countstore
         self._start = countstore.start
-        snapshot = None
-        prevsnapshot = None
         sendfunc = self.send
-        prevtime = perf_counter()
         while True:
             await asyncio.sleep(wait)
             if self.stop:
                 break
-            curtime = perf_counter()
-            delta = (prevtime, curtime)
-            snapshot = deepcopy(countstore)
-            countstore.allresetclient(prevtime)
-            await sendfunc(delta, snapshot, prevsnapshot)
-            prevtime = curtime
-            prevsnapshot = snapshot
+            await sendfunc(countstore)
+            countstore.allresetclient()
             if self.stop:
                 break
 
-    async def send(self, delta, snapshot, prevsnapshot):
+    async def send(self, snapshot):
         """Send snapshot diff"""
         mkdata = self.mkdata
-        end_date = snapshot.end_date
+        # end_date = snapshot.end_date
         channel = self._channel
         reset = False
         if self._start is None:
@@ -286,35 +326,31 @@ class SendTimeData:
             reset = True
             self._start = snapshot.start
         async for k, count in ageniter(snapshot.items()):
-            prevcount = None if prevsnapshot is None else prevsnapshot[k]
-            data = await mkdata(delta, end_date, k, count, prevcount,
-                                reset=reset)
+        end_date = now()
+        windowlist = list(snapshot.items())
+        async for k, window in aiter(windowlist):
+            data = mkdata(curtime, end_date, k, window, reset=reset)
             await channel.send(data)
 
-    async def mkdata(self, delta, end_date, key, count, prevcount, *,
-                     reset=False):
+    def mkdata(self, curtime, end_date, key, window, *, reset=False):
         """Calculate rate and response time"""
-        prevtime, curtime = delta
-        window_start = count.window_start
-        if window_start and window_start < prevtime:
-            delta = curtime - window_start
-            success_diff = count.success - count.window_success
-            numclient = count.pop_window_client()
-        else:
-            delta = curtime - prevtime
-            success_diff = (count.success - prevcount.success if prevcount
-                            else count.success)
-            numclient = len(count.client)
+        if window.frames:
+            # Get oldest frame
+            frame = window.frames[next(iter(window.frames))]
+
+            # Update current window with data from oldest frame
+            window.update(frame)
+
+        # Calculate
+        if window.window_end:
+            curtime = window.window_end
+        delta = curtime - window.window_start
+        success_diff = window.window_success
+        numclient = len(window.client)
         rate = (success_diff / delta) if delta > 0 else 0
-        if end_date is None:
-            end_date = now()
-        #  response = (1 / rate) if rate > 0 else None
 
-        prev = prevcount.error if prevcount else {}
-        error = await self.countdiff(count.error, prev)
-
-        prev = prevcount.failure if prevcount else {}
-        failure = await self.countdiff(count.failure, prev)
+        error = window.window_error
+        failure = window.window_failure
 
         data = CountStoreData(name=key, end=end_date, delta=delta, rate=rate,
                               error=error, failure=failure, reset=reset,
