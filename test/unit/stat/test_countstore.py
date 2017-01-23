@@ -14,6 +14,7 @@
 # Stdlib imports
 from asyncio import iscoroutinefunction
 from collections import defaultdict
+from functools import partial
 from time import perf_counter
 
 # Third-party imports
@@ -34,6 +35,7 @@ def test_count_init():
     """Initialize Count objects with attrs set to 0"""
     c = Count()
     assert c.success == 0
+    assert c.window_success == 0
     for attr in ['error', 'failure']:
         assert isinstance(getattr(c, attr), defaultdict)
 
@@ -42,38 +44,49 @@ def test_count_newerror():
     """Adding a new error initializes its count to 0"""
     c = Count()
     assert c.error[42] == 0
+    assert c.window_error[4242] == 0
 
 
 def test_count_newfailure():
     """Adding a new failure initializes its count to 0"""
     c = Count()
     assert c.failure[42] == 0
+    assert c.window_failure[4242] == 0
 
 
-def test_count_addsuccess():
+@pytest.mark.parametrize('val', [1, 2, 42])
+def test_count_addsuccess(val):
     """Adding a success increments the success count"""
     c = Count()
+    func = c.addsuccess if val == 1 else partial(c.addsuccess, val)
     for i in range(10):
-        c.addsuccess()
-        assert c.success == i + 1
+        c.success = 0
+        func()
+        assert c.success == val
 
 
-def test_count_adderror():
+@pytest.mark.parametrize('val', [1, 2, 42])
+def test_count_adderror(val):
     """Adding an error increments the error count"""
     c = Count()
+    func = c.adderror if val == 1 else partial(c.adderror, val=val)
     key = 42
     for i in range(10):
-        c.adderror(key)
-        assert c.error[key] == i + 1
+        c.error.clear()
+        func(key)
+        assert c.error[key] == val
 
 
-def test_count_addfailure():
+@pytest.mark.parametrize('val', [1, 2, 42])
+def test_count_addfailure(val):
     """Adding a failure increments the failure count"""
     c = Count()
+    func = c.addfailure if val == 1 else partial(c.addfailure, val=val)
     key = 42
     for i in range(10):
-        c.addfailure(key)
-        assert c.failure[key] == i + 1
+        c.failure.clear()
+        func(key)
+        assert c.failure[key] == val
 
 
 def test_count_addclient():
@@ -86,19 +99,66 @@ def test_count_addclient():
         assert len(c.client) == i + 1
 
 
-def test_count_resetclient():
+def test_count_resetclient_noframes():
     """Remove all clients on reset"""
     c = Count()
+    c.window_success = 42
+    c.window_error[42] = 42
+    c.window_failure[42] = 42
+    c.window_end = 42
+    c.window_start = 42
+
     for i in range(10):
         clientid = id(i)
         c.addclient(clientid)
 
     assert len(c.client) == 10
     cursetid = id(c.client)
+
     c.resetclient()
+
     assert id(c.client) != cursetid
     assert not c.client
     assert isinstance(c.client, set)
+
+    assert c.window_start is None
+    assert c.window_end is None
+    assert isinstance(c.window_failure, defaultdict)
+    assert isinstance(c.window_error, defaultdict)
+    assert not c.window_failure
+    assert not c.window_error
+
+
+def test_count_resetclient_frames():
+    """Remove all clients on reset"""
+    c = Count()
+    c.window_success = 42
+    c.window_error[42] = 42
+    c.window_failure[42] = 42
+    c.window_end = 42
+    c.window_start = 42
+    c.frames = {42: Count()}
+    c.frames[42].window_start = 4242
+
+    for i in range(10):
+        clientid = id(i)
+        c.addclient(clientid)
+
+    assert len(c.client) == 10
+    cursetid = id(c.client)
+
+    c.resetclient()
+
+    assert id(c.client) != cursetid
+    assert not c.client
+    assert isinstance(c.client, set)
+
+    assert c.window_start == 4242
+    assert c.window_end is None
+    assert isinstance(c.window_failure, defaultdict)
+    assert isinstance(c.window_error, defaultdict)
+    assert not c.window_failure
+    assert not c.window_error
 
 
 def test_count_sum_zero():
@@ -129,15 +189,52 @@ def test_count_sum(success, error, failure):
     assert c.sum() == expected
 
 
-def test_count_resetclient_window_attr():
-    """Reset window_start and window_success attributes"""
-    c = Count()
-    c.window_start = perf_counter()
-    c.window_success = 42
+def test_count_update_client():
+    """Update client with values from old client"""
+    old = Count()
+    new = Count()
 
-    c.resetclient()
-    assert c.window_start is None
-    assert c.window_success == 0
+    old.client.update(range(5))
+    new.client.add(42)
+
+    new.update(old)
+    assert new.client == set([42] + list(range(5)))
+
+
+def test_count_update_success():
+    """Add success val from old"""
+    old = Count()
+    new = Count()
+
+    old.success = 40
+    new.success = 2
+
+    new.update(old)
+    assert new.success == 42
+
+
+def test_count_update_errors():
+    """Add error vals from old"""
+    old = Count()
+    new = Count()
+
+    old.error[42] = 40
+    new.error[42] = 2
+
+    new.update(old)
+    assert list(new.error.items()) == [(42, 42)]
+
+
+def test_count_update_failures():
+    """Add failure vals from old"""
+    old = Count()
+    new = Count()
+
+    old.failure[42] = 40
+    new.failure[42] = 2
+
+    new.update(old)
+    assert list(new.failure.items()) == [(42, 42)]
 
 
 # ============================================================================
