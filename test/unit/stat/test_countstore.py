@@ -13,7 +13,7 @@
 
 # Stdlib imports
 from asyncio import iscoroutinefunction
-from collections import defaultdict
+from collections import defaultdict,OrderedDict
 from functools import partial
 from time import perf_counter
 
@@ -299,32 +299,75 @@ def test_countstore_call_decorator():
 # ============================================================================
 
 
-@pytest.mark.asyncio
-async def test_countstore_measure_setkey(monkeypatch):
-    """Adds name as a CountStore key"""
-    measure = CountStore()
-    #  measure['run'].success = 42
-    called = False
+@pytest.fixture
+def measure():
+    """docstring for mkcountstore"""
+    return CountStore()
+
+
+@pytest.fixture
+def noopfunc(measure):
+    """docstring for mknoop"""
+    called = []
 
     @measure(name='run')
     async def noop():
         """Do nothing"""
-        nonlocal called
-        called = True
+        called.append(True)
 
+    return noop, called
+
+
+@pytest.mark.asyncio
+async def test_countstore_measure_setkey(measure, noopfunc):
+    """Adds name as a CountStore key"""
+    noop, called = noopfunc
     assert not measure
 
     await noop()
 
+    # The 'run' key was added
     assert len(measure) == 1
     assert list(measure.keys()) == ['run']
-    assert called is True
-    assert measure['run'].sum() == 1
-    assert measure['run'].success == 1
-    assert len(measure['run'].client) == 1
-    assert measure['run'].window_start is not None
-    assert isinstance(measure['run'].window_start, float)
-    assert measure['run'].window_start > 0
+    assert len(called) == 1 and called[0] is True
+
+    run = measure['run']
+    assert isinstance(run, Count)
+
+
+async def test_countstore_measure_window_frames(measure, noopfunc):
+    """Window frames container is an OrderedDict"""
+    noop, called = noopfunc
+    assert not measure
+
+    await noop()
+
+    run = measure['run']
+    assert run.frames is not None
+    assert isinstance(run.frames, OrderedDict)
+
+    # No frames should be stored since the frame was completed
+    assert not run.frames
+
+    # assert not run.frames
+    # assert isinstance(run.window_start, float)
+    # assert run.window_start > 0
+
+    # assert measure.start == run.window_start
+
+    # assert run.sum() == 1
+    # assert run.success == 1
+    # assert len(run.client) == 1
+    # assert run.window_success == 1
+    # assert not run.window_error
+    # assert not run.window_failure
+    # assert not run.error
+    # assert not run.failure
+    # assert run.window_end > run.window_start
+
+    # assert run.window_start is not None
+    # assert isinstance(run.window_start, float)
+    # assert run.window_start > 0
 
 
 @pytest.mark.asyncio
