@@ -14,9 +14,8 @@
 # Stdlib imports
 import asyncio
 from asyncio import Lock
-from collections import defaultdict, namedtuple, OrderedDict
+from collections import defaultdict, namedtuple
 from copy import deepcopy
-from enum import Enum
 from functools import partial, wraps
 from hashlib import sha1
 from itertools import chain, count
@@ -101,7 +100,7 @@ class ErrorCounter(Counter):
     def reset(self):
         """Reset the counter"""
         if self.default is None:
-            default = lambda: Counter()
+            default = partial(Counter, self.name)
         retval = default()
         if not isinstance(retval, Counter):
             errmsg = ('default function return value expected {} object, '
@@ -144,13 +143,17 @@ class LoadFrame(Frame):
         return sum(chain([self.success.value], self.error.values(),
                          self.failure.values()))
 
+    def reset(self):
+        """Call reset on all counters"""
+        self.client = set()
+        super().reset()
+
 
 class TimelineFrame(LoadFrame):
-    __slots__ = ('timeline', 'frame')
+    __slots__ = ('frame', )
 
     def __init__(self):
-        self.timeline = OrderedDict()
-        self.frame = LoadFrame()
+        self.frame = self.newframe()
         super().__init__()
 
     @staticmethod
@@ -158,22 +161,22 @@ class TimelineFrame(LoadFrame):
         """Create a new frame"""
         return LoadFrame(start=start, end=end)
 
-    def addframe(self, frame):
-        """Add a frame to the timeline"""
-        if not isinstance(frame, LoadFrame):
-            errmsg = ('frame expected {} object, got {} object instead'.
-                      format(LoadFrame.__name__, type(frame).__name__))
-            raise TypeError(errmsg)
+    # def addframe(self, frame):
+    #     """Add a frame to the timeline"""
+    #     if not isinstance(frame, LoadFrame):
+    #         errmsg = ('frame expected {} object, got {} object instead'.
+    #                   format(LoadFrame.__name__, type(frame).__name__))
+    #         raise TypeError(errmsg)
 
-        start = frame.start
-        if start is None:
-            frame.start = start = perf_counter()
-        self.timeline[start] = frame
+    #     start = frame.start
+    #     if start is None:
+    #         frame.start = start = perf_counter()
+    #     self.timeline[start] = frame
 
-    def popframe(self, framestart):
-        """Remove and return the frame that started at framestart"""
-        # Pop current frame
-        return self.timeline.pop(framestart)
+    # def popframe(self, framestart):
+    #     """Remove and return the frame that started at framestart"""
+    #     # Pop current frame
+    #     return self.timeline.pop(framestart)
 
     def addsuccess(self, val=1):
         """Increment the success count"""
@@ -197,15 +200,15 @@ class TimelineFrame(LoadFrame):
     def resetclient(self):
         """Set client to a new empty set"""
         curframe = self.frame
-        self.client = set()
         curframe.reset()
         curframe.end = None
-        timeline = self.timeline
-        if timeline:
-            key = next(iter(timeline))
-            curframe.start = timeline[key].start
-        else:
-            curframe.start = None
+        curframe.start = perf_counter()
+        # timeline = self.timeline
+        # if timeline:
+        #     key = next(iter(timeline))
+        #     curframe.start = timeline[key].start
+        # else:
+        #     curframe.start = None
 
     def update(self, old):
         """Add counts of old to timeline counts"""
@@ -227,18 +230,13 @@ class TimelineFrame(LoadFrame):
         for failtxt, val in old.failure.items():
             addfailure(failtxt, val)
 
-    def oldest(self):
-        """Get the oldest frame compared to frame started at framestart"""
-        timeline = self.timeline
+    # def oldest(self):
+    #     """Get the oldest frame compared to frame started at framestart"""
+    #     timeline = self.timeline
 
-        # Get oldest frame key
-        key = next(iter(timeline))
-        return key, timeline[key]
-        #  cur_is_oldest = (key == framestart)
-
-        #  # Get oldest frame
-        #  oldframe = timeline[framestart] if cur_is_oldest else timeline[key]
-        #  return key, oldframe
+    #     # Get oldest frame key
+    #     key = next(iter(timeline))
+    #     return key, timeline[key]
 
 
 class CoroMonitor:
@@ -261,13 +259,13 @@ class CoroMonitor:
         start = timeline.start
         self.curstart = curstart = perf_counter()
 
-        # Add a new frame
-        frame = window.newframe(start=curstart)
-        window.addframe(frame)
-        #  f.window_start = curstart
+        # # Add a new frame
+        # frame = window.newframe(start=curstart)
+        # window.addframe(frame)
 
         # Set the window's start time
-        if window.frame.start is None:
+        framestart = window.frame.start
+        if framestart is None or curstart < framestart:
             window.frame.start = curstart
 
         # Set timeline's start time
@@ -278,30 +276,33 @@ class CoroMonitor:
     def __exit__(self, exctype, exc, exctb):
         error, failure = self.errors
         timeline = self.timeline
-        window = timeline[self.name]
-        curstart = self.curstart
+        frame = timeline[self.name]
+        # curstart = self.curstart
 
-        # Get oldest frame
-        key, oldframe = window.oldest()
+        # # Get oldest frame
+        # key, oldframe = window.oldest()
 
-        # Remove current frame from window
-        window.popframe(curstart)
+        # # Remove current frame from window
+        # window.popframe(curstart)
 
         # Update oldest frame
         if failure is not None:
-            oldframe.addfailure(failure, 1)
+            frame.failure.increment(failure, 1)
+            # frame.addfailure(failure, 1)
         elif error is not None:
-            oldframe.adderror(error, 1)
+            frame.error.increment(error, 1)
+            # frame.adderror(error, 1)
         else:
-            oldframe.addsuccess(1)
-            oldframe.client.add(self.clientid)
+            frame.success.increment(1)
+            # frame.addsuccess(1)
+            frame.client.add(self.clientid)
 
         # Set window's end time
-        window.frame.end = timeline.end
+        frame.end = timeline.end
 
-        # If oldframe was popped, add its values to current window
-        if key == curstart:
-            window.update(oldframe)
+        # # If oldframe was popped, add its values to current window
+        # if key == curstart:
+        #     window.update(oldframe)
 
     async def __call__(self, *args, **kwargs):
         """Measure coroutine runtime"""
@@ -357,6 +358,11 @@ class LoadTimeline(defaultdict):
     def mkwrapper(self, corofunc, *, name=None, clientid=None):
         """Create corofunc wrapper"""
         monitor = CoroMonitor(self, corofunc, name, clientid)
+
+        @wraps(corofunc)
+        async def wrapper(*args, **kwargs):
+            return await monitor(*args, **kwargs)
+
         return wraps(corofunc)(monitor.__call__)
 
     def __call__(self, corofunc=None, *, name=None, clientid=None):
@@ -667,13 +673,13 @@ class SendTimeData:
 
     def mkdata(self, curtime, end_date, key, window, *, reset=False):
         """Calculate rate and response time"""
-        timeline = window.timeline
-        if timeline:
-            # Get oldest frame
-            frame = timeline.oldest()
+        # timeline = window.timeline
+        # if timeline:
+        #     # Get oldest frame
+        #     frame = timeline.oldest()
 
-            # Update current window with data from oldest frame
-            window.update(frame)
+        #     # Update current window with data from oldest frame
+        #     window.update(frame)
 
         # Calculate
         if window.frame.end:
@@ -691,12 +697,12 @@ class SendTimeData:
                               clientcount=numclient)
         return data
 
-    async def countdiff(self, count, prevcount):
-        """Return dictionary with count differences"""
-        diff = {}
+    # async def countdiff(self, count, prevcount):
+    #     """Return dictionary with count differences"""
+    #     diff = {}
         async for k, v in ageniter(count.items()):
-            diff[k] = v - prevcount[k] if k in prevcount else v
-        return diff
+    #         diff[k] = v - prevcount[k] if k in prevcount else v
+    #     return diff
 
     async def shutdown(self, *args, **kwargs):
         """Shutdown the coro"""
