@@ -14,8 +14,7 @@
 # Stdlib imports
 import asyncio
 from asyncio import Lock
-from collections import defaultdict, namedtuple
-from copy import deepcopy
+from collections import (Counter, defaultdict, namedtuple, OrderedDict)
 from functools import partial, wraps
 from hashlib import sha1
 from itertools import chain, count
@@ -66,177 +65,49 @@ timedata = DataChannel(name='timedata')
 # ============================================================================
 
 
-class Counter:
-    __slots__ = ('name', 'value', 'default')
-
-    def __init__(self, name, default=0):
-        self.name = name
-        self.value = default
-        self.default = default
-
-    def increment(self, step):
-        """Increment the counter"""
-        self.value += step
-
-    def reset(self):
-        """Reset the counter to value"""
-        self.value = self.default
-
-
-class ErrorCounter(Counter):
-    __slots__ = ()
-
-    def __init__(self, name, default=None):
-        super().__init__(name, default)
-        self.reset()
-
-    def __getattr__(self, name):
-        return getattr(self.value, name)
-
-    def increment(self, errmsg, step):
-        """Increment the error counter"""
-        self.value[errmsg] += step
-
-    def reset(self):
-        """Reset the counter"""
-        if self.default is None:
-            default = partial(Counter, self.name)
-        retval = default()
-        if not isinstance(retval, Counter):
-            errmsg = ('default function return value expected {} object, '
-                      'got {} object instead'.
-                      format(Counter.__name__, type(retval).__name__))
-            raise TypeError(errmsg)
-        self.value = defaultdict(default)
-
-
 class Frame:
-    __slots__ = ('_count', )
-
-    def __init__(self, *counters):
-        CountTuple = namedtuple('CountTuple', [c.name for c in counters])
-        self._count = CountTuple(*counters)
-
-    def __getattr__(self, name):
-        return getattr(self._count, name)
-
-    def reset(self):
-        """Call reset on all counters"""
-        for c in self._count:
-            c.reset()
-
-
-class LoadFrame(Frame):
-    __slots__ = ('start', 'end', 'client')
+    __slots__ = ('start', 'end', 'client', 'success', 'error', 'failure')
 
     def __init__(self, start=None, end=None):
         self.start = start
         self.end = end
-        self.client = set()
-        success = Counter('success')
-        error = ErrorCounter('error')
-        failure = ErrorCounter('failure')
-        super().__init__(success, error, failure)
+        self.reset()
 
     def sum(self):
         """Calculate the sum of all counters"""
-        return sum(chain([self.success.value], self.error.values(),
-                         self.failure.values()))
+        chainiter = chain(
+            self.success.values(),
+            (c for e in self.error.values() for c in e.values()),
+            (c for f in self.failure.values() for c in f.values())
+        )
+        return sum(chainiter)
 
     def reset(self):
-        """Call reset on all counters"""
+        """Reset all counters"""
         self.client = set()
-        super().reset()
+        self.success = Counter()
+        self.error = defaultdict(Counter)
+        self.failure = defaultdict(Counter)
 
-
-class TimelineFrame(LoadFrame):
-    __slots__ = ('frame', )
-
-    def __init__(self):
-        self.frame = self.newframe()
-        super().__init__()
-
-    @staticmethod
-    def newframe(start=None, end=None):
-        """Create a new frame"""
-        return LoadFrame(start=start, end=end)
-
-    # def addframe(self, frame):
-    #     """Add a frame to the timeline"""
-    #     if not isinstance(frame, LoadFrame):
-    #         errmsg = ('frame expected {} object, got {} object instead'.
-    #                   format(LoadFrame.__name__, type(frame).__name__))
-    #         raise TypeError(errmsg)
-
-    #     start = frame.start
-    #     if start is None:
-    #         frame.start = start = perf_counter()
-    #     self.timeline[start] = frame
-
-    # def popframe(self, framestart):
-    #     """Remove and return the frame that started at framestart"""
-    #     # Pop current frame
-    #     return self.timeline.pop(framestart)
-
-    def addsuccess(self, val=1):
-        """Increment the success count"""
-        self.success.increment(val)
-        self.frame.success.increment(val)
-
-    def adderror(self, err, val=1):
-        """Add an error and increment its count"""
-        self.error.increment(err, val)
-        self.frame.error.increment(err, val)
-
-    def addfailure(self, fail, val=1):
-        """Add a failure and increment its count"""
-        self.failure.increment(fail, val)
-        self.frame.failure.increment(fail, val)
-
-    def addclient(self, clientid):
-        """Increment the client count"""
-        self.client.add(clientid)
-
-    def resetclient(self):
-        """Set client to a new empty set"""
-        curframe = self.frame
-        curframe.reset()
-        curframe.end = None
-        curframe.start = perf_counter()
-        # timeline = self.timeline
-        # if timeline:
-        #     key = next(iter(timeline))
-        #     curframe.start = timeline[key].start
-        # else:
-        #     curframe.start = None
-
-    def update(self, old):
-        """Add counts of old to timeline counts"""
+    def update(self, frame):
+        """Add counts from other frame"""
         # Update client ids
-        self.client.update(old.client)
+        self.client.update(frame.client)
 
         # Update success
-        self.addsuccess(old.success)
+        self.success.update(frame.success)
 
         # Dot optimizations
-        adderror = self.adderror
-        addfailure = self.addfailure
+        error = self.error
+        failure = self.failure
 
         # Update errors and failures
-        for errtxt, val in old.error.items():
-            adderror(errtxt, val)
+        for k, errcounter in frame.error.items():
+            error[k].update(errcounter)
 
         # Update failures
-        for failtxt, val in old.failure.items():
-            addfailure(failtxt, val)
-
-    # def oldest(self):
-    #     """Get the oldest frame compared to frame started at framestart"""
-    #     timeline = self.timeline
-
-    #     # Get oldest frame key
-    #     key = next(iter(timeline))
-    #     return key, timeline[key]
+        for k, failcounter in frame.failure.items():
+            failure[k].update(failcounter)
 
 
 class CoroMonitor:
@@ -253,20 +124,17 @@ class CoroMonitor:
 
     def __enter__(self):
         timeline = self.timeline
-        name = self.name
 
-        window = timeline[name]
         start = timeline.start
         self.curstart = curstart = perf_counter()
 
-        # # Add a new frame
-        # frame = window.newframe(start=curstart)
-        # window.addframe(frame)
+        # Add a new frame
+        frame = timeline.newframe(start=curstart)
+        timeline.addframe(frame)
 
-        # Set the window's start time
-        framestart = window.frame.start
-        if framestart is None or curstart < framestart:
-            window.frame.start = curstart
+        # Set the timeline frame's start time
+        if timeline.frame.start is None:
+            timeline.frame.start = curstart
 
         # Set timeline's start time
         if start is None:
@@ -276,33 +144,30 @@ class CoroMonitor:
     def __exit__(self, exctype, exc, exctb):
         error, failure = self.errors
         timeline = self.timeline
-        frame = timeline[self.name]
-        # curstart = self.curstart
+        frame = timeline.frame
+        curstart = self.curstart
 
-        # # Get oldest frame
-        # key, oldframe = window.oldest()
+        # Get oldest frame
+        key, oldframe = timeline.oldest()
 
-        # # Remove current frame from window
-        # window.popframe(curstart)
+        # Remove current frame from window
+        timeline.popframe(curstart)
 
         # Update oldest frame
         if failure is not None:
-            frame.failure.increment(failure, 1)
-            # frame.addfailure(failure, 1)
+            oldframe.failure[self.name][failure] += 1
         elif error is not None:
-            frame.error.increment(error, 1)
-            # frame.adderror(error, 1)
+            oldframe.error[self.name][error] += 1
         else:
-            frame.success.increment(1)
-            # frame.addsuccess(1)
-            frame.client.add(self.clientid)
+            oldframe.success[self.name] += 1
+            oldframe.client.add(self.clientid)
 
         # Set window's end time
         frame.end = timeline.end
 
-        # # If oldframe was popped, add its values to current window
-        # if key == curstart:
-        #     window.update(oldframe)
+        # If oldframe was popped, add its values to current timeline
+        if key == curstart:
+            timeline.update(oldframe)
 
     async def __call__(self, *args, **kwargs):
         """Measure coroutine runtime"""
@@ -329,31 +194,58 @@ class CoroMonitor:
         return ret
 
 
-class LoadTimeline(defaultdict):
-    """Store counts of wrapped coroutines that have completed"""
+class TimelineFrame(Frame):
+    __slots__ = ('timeline', 'frame', 'start_date', 'end_date')
 
     def __init__(self):
-        super().__init__(TimelineFrame)
-        self.start = None
+        self.timeline = OrderedDict()
+        self.frame = self.newframe()
         self.start_date = None
-        self.end = None
         self.end_date = None
+        super().__init__()
 
-    def __deepcopy__(self, memo):
-        """Create a deepcopy of this LoadTimeline instance"""
-        copy = self.__class__()
+    @staticmethod
+    def newframe(start=None, end=None):
+        """Create a new frame"""
+        return Frame(start=start, end=end)
 
-        # Copy attributes
-        copy.start = deepcopy(self.start, memo)
-        copy.start_date = deepcopy(self.start_date, memo)
-        copy.end = deepcopy(self.end, memo)
-        copy.end_date = deepcopy(self.end_date, memo)
+    def addframe(self, frame):
+        """Add a frame to the timeline"""
+        if not isinstance(frame, Frame):
+            errmsg = ('frame expected {} object, got {} object instead'.
+                      format(Frame.__name__, type(frame).__name__))
+            raise TypeError(errmsg)
 
-        # Copy dict
-        for k, v in self.items():
-            copy[k] = deepcopy(v, memo)
+        start = frame.start
+        if start is None:
+            frame.start = start = perf_counter()
+        self.timeline[start] = frame
 
-        return copy
+    def popframe(self, framestart):
+        """Remove and return the frame that started at framestart"""
+        # Pop current frame
+        return self.timeline.pop(framestart)
+
+    def resetclient(self):
+        """Set client to a new empty set"""
+        self.frame = curframe = self.newframe()
+        timeline = self.timeline
+        if timeline:
+            _, oldframe = self.oldest()
+            curframe.start = oldframe.start
+
+    def update(self, frame):
+        """Add counts from given frame"""
+        self.frame.update(frame)
+        super().update(frame)
+
+    def oldest(self):
+        """Get the oldest frame compared to frame started at framestart"""
+        timeline = self.timeline
+
+        # Get oldest frame key
+        key = next(iter(timeline))
+        return key, timeline[key]
 
     def mkwrapper(self, corofunc, *, name=None, clientid=None):
         """Create corofunc wrapper"""
@@ -363,10 +255,11 @@ class LoadTimeline(defaultdict):
         async def wrapper(*args, **kwargs):
             return await monitor(*args, **kwargs)
 
-        return wraps(corofunc)(monitor.__call__)
+        return wrapper
 
     def __call__(self, corofunc=None, *, name=None, clientid=None):
         """Decorator that records rate and response time of a corofunc"""
+        # raise Exception('HERE')
         if name is None:
             raise ValueError('name not given')
         elif not isinstance(name, str):
@@ -380,243 +273,13 @@ class LoadTimeline(defaultdict):
 
         return deco(corofunc)
 
-    def allresetclient(self):
-        """Call resetclient() on every stored Count object"""
-        for v in self.values():
-            v.resetclient()
 
-    def reset(self):
-        """Reset all counts to starting values"""
-        self.start = None
-        self.start_date = None
-        self.end = None
-        self.end_date = None
-        self.clear()
-
-
-measure = LoadTimeline()
+measure = TimelineFrame()
 
 
 # ============================================================================
-# CountStore
+# SendTimeData
 # ============================================================================
-
-
-# class Count:
-#     __slots__ = ('frames', 'window_start', 'window_end', 'window_success',
-#                  'window_error', 'window_failure', 'success', 'error',
-#                  'failure', 'client')
-#
-#     def __init__(self):
-#         self.frames = None
-#         self.window_start = None
-#         self.window_end = None
-#         self.window_success = 0
-#         self.window_error = defaultdict(lambda: 0)
-#         self.window_failure = defaultdict(lambda: 0)
-#
-#         self.success = 0
-#         self.error = defaultdict(lambda: 0)
-#         self.failure = defaultdict(lambda: 0)
-#         self.client = set()
-#
-#     def addsuccess(self, val=1):
-#         """Increment the success count"""
-#         self.success += val
-#         self.window_success += val
-#
-#     def adderror(self, err, val=1):
-#         """Add an error and increment its count"""
-#         self.error[err] += val
-#         self.window_error[err] += val
-#
-#     def addfailure(self, fail, val=1):
-#         """Add a failure and increment its count"""
-#         self.failure[fail] += val
-#         self.window_failure[fail] += val
-#
-#     def addclient(self, clientid):
-#         """Increment the client count"""
-#         self.client.add(clientid)
-#
-#     def resetclient(self):
-#         """Set client to a new empty set"""
-#         self.client = set()
-#         self.window_success = 0
-#         self.window_error = defaultdict(lambda: 0)
-#         self.window_failure = defaultdict(lambda: 0)
-#         self.window_end = None
-#         if self.frames:
-#             key = next(iter(self.frames))
-#             self.window_start = self.frames[key].window_start
-#         else:
-#             self.window_start = None
-#
-#     def update(self, old):
-#         """Update values with values of old"""
-#         # Update client ids
-#         self.client.update(old.client)
-#
-#         # Update success
-#         self.addsuccess(old.success)
-#
-#         # Dot optimizations
-#         adderror = self.adderror
-#         addfailure = self.addfailure
-#
-#         # Update errors
-#         for errtxt, val in old.error.items():
-#             adderror(errtxt, val)
-#
-#         # Update failures
-#         for errtxt, val in old.failure.items():
-#             addfailure(errtxt, val)
-#
-#     def sum(self):
-#         """Sum of all counts
-#
-#         Does not include client counts.
-#
-#         """
-#         return sum(chain([self.success], self.error.values(),
-#                          self.failure.values()))
-#
-#
-# class CountStore(defaultdict):
-#     """Store counts of wrapped coroutines that have completed"""
-#
-#     def __init__(self):
-#         super().__init__(Count)
-#         self.start = None
-#         self.start_date = None
-#         self.end = None
-#         self.end_date = None
-#
-#     def __deepcopy__(self, memo):
-#         """Create a deepcopy of this CountStore instance"""
-#         copy = self.__class__()
-#
-#         # Copy attributes
-#         copy.start = deepcopy(self.start, memo)
-#         copy.start_date = deepcopy(self.start_date, memo)
-#         copy.end = deepcopy(self.end, memo)
-#         copy.end_date = deepcopy(self.end_date, memo)
-#
-#         # Copy dict
-#         for k, v in self.items():
-#             copy[k] = deepcopy(v, memo)
-#
-#         return copy
-#
-#     def _getoldframe(self, curstart, window):
-#         """Get the oldest frame"""
-#         allframes = window.frames
-#
-#         # Get oldest frame key
-#         key = next(iter(allframes))
-#         cur_is_oldest = (key == curstart)
-#
-#         # Pop current frame
-#         curframe = allframes.pop(curstart)
-#
-#         # Get oldest frame
-#         oldframe = curframe if cur_is_oldest else allframes[key]
-#         return key, oldframe
-#
-#     def mkwrapper(self, corofunc, *, name=None, clientid=None):
-#         """Create corofunc wrapper"""
-#
-#         @wraps(corofunc)
-#         async def wrapper(*args, **kwargs):
-#             """Measure coroutine runtime"""
-#             window = self[name]
-#             start = self.start
-#             curstart = perf_counter()
-#
-#             # Add the first frame
-#             if window.frames is None:
-#                 window.frames = OrderedDict()
-#             window.frames[curstart] = f = Count()
-#             f.window_start = curstart
-#
-#             # Set the window's start time
-#             if window.window_start is None:
-#                 window.window_start = curstart
-#
-#             # Set countstore's start time
-#             if start is None:
-#                 self.start_date = now()
-#                 self.start = start = curstart
-#
-#             # Default values
-#             ret = None
-#             failure = None
-#             error = None
-#
-#             # Call the wrapped corofunc
-#             try:
-#                 ret = await corofunc(*args, **kwargs)
-#             except Failure as e:
-#                 failure = str(e.args[0])
-#             except Exception as e:
-#                 error = repr(e)
-#             finally:
-#                 self.end = curend = perf_counter()
-#                 self.end_date = now()
-#
-#             # Get oldest frame, this also removes the current frame
-#             key, oldframe = self._getoldframe(curstart, window)
-#
-#             # Update oldest frame
-#             if failure is not None:
-#                 oldframe.addfailure(failure, 1)
-#             elif error is not None:
-#                 oldframe.adderror(error, 1)
-#             else:
-#                 oldframe.addsuccess(1)
-#                 oldframe.client.add(clientid)
-#
-#             # Set window's end time
-#             window.window_end = curend
-#
-#             # If oldframe was popped, add its values to current window
-#             if key == curstart:
-#                 window.update(oldframe)
-#
-#             return ret
-#
-#         return wrapper
-#
-#     def __call__(self, corofunc=None, *, name=None, clientid=None):
-#         """Decorator that records rate and response time of a corofunc"""
-#         if name is None:
-#             raise ValueError('name not given')
-#         elif not isinstance(name, str):
-#             msg = ('name expected str, got {} instead'.
-#                    format(type(name).__name__))
-#             raise TypeError(msg)
-#
-#         deco = partial(self.mkwrapper, name=name, clientid=clientid)
-#         if corofunc is None:
-#             return deco
-#
-#         return deco(corofunc)
-#
-#     def allresetclient(self):
-#         """Call resetclient() on every stored Count object"""
-#         for v in self.values():
-#             v.resetclient()
-#
-#     def reset(self):
-#         """Reset all counts to starting values"""
-#         self.start = None
-#         self.start_date = None
-#         self.end = None
-#         self.end_date = None
-#         self.clear()
-#
-#
-# measure = CountStore()
 
 
 class SendTimeData:
@@ -649,7 +312,7 @@ class SendTimeData:
             if self.stop:
                 break
             await sendfunc(timeline)
-            timeline.allresetclient()
+            timeline.resetclient()
             if self.stop:
                 break
 
@@ -666,43 +329,39 @@ class SendTimeData:
             self._start = timeline.start
         async for k, count in ageniter(snapshot.items()):
         end_date = now()
-        snapshot = list(timeline.items())
-        async for k, window in ageniter(snapshot):
-            data = mkdata(curtime, end_date, k, window, reset=reset)
+        frame = timeline.frame
+        keys = set(chain(frame.success, frame.error, frame.failure))
+        async for k in ageniter(keys):
+            data = mkdata(curtime, end_date, k, frame, reset=reset)
             await channel.send(data)
 
-    def mkdata(self, curtime, end_date, key, window, *, reset=False):
+    def mkdata(self, curtime, end_date, key, snapshot, *, reset=False):
         """Calculate rate and response time"""
-        # timeline = window.timeline
-        # if timeline:
-        #     # Get oldest frame
-        #     frame = timeline.oldest()
-
-        #     # Update current window with data from oldest frame
-        #     window.update(frame)
+        timeline = self._timeline
+        # Create new frame and copy counts of current window
+        frame = timeline.newframe()
+        frame.update(snapshot)
+        frame.start = snapshot.start
+        frame.end = snapshot.end
+        if timeline.timeline:
+            _, oldframe = timeline.oldest()
+            frame.update(oldframe)
 
         # Calculate
-        if window.frame.end:
-            curtime = window.frame.end
-        delta = curtime - window.frame.start
-        success_diff = window.frame.success.value
-        numclient = len(window.client)
+        if frame.end:
+            curtime = frame.end
+        delta = curtime - frame.start
+        success_diff = frame.success[key]
+        numclient = len(frame.client)
         rate = (success_diff / delta) if delta > 0 else 0
 
-        error = window.frame.error
-        failure = window.frame.failure
+        error = frame.error[key]
+        failure = frame.failure[key]
 
         data = CountStoreData(name=key, end=end_date, delta=delta, rate=rate,
                               error=error, failure=failure, reset=reset,
                               clientcount=numclient)
         return data
-
-    # async def countdiff(self, count, prevcount):
-    #     """Return dictionary with count differences"""
-    #     diff = {}
-        async for k, v in ageniter(count.items()):
-    #         diff[k] = v - prevcount[k] if k in prevcount else v
-    #     return diff
 
     async def shutdown(self, *args, **kwargs):
         """Shutdown the coro"""
