@@ -10,6 +10,16 @@
 # Imports
 # ============================================================================
 
+# Local imports
+from . import channel
+from . import stat as stat
+from .core import BaseLoop, Client
+from .importhook import TaskImporter
+from .result import (SQLTimeSeries, SQLTotal, SQLTotalError, SQLTotalFailure,
+                     TimeSeries, Total, TotalError, TotalFailure)
+from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
+                   SendTimeData)
+from .util import ageniter, Event, EventType, LogLevel, Namespace, TZ_UTC
 
 # Stdlib imports
 from argparse import ArgumentParser
@@ -37,18 +47,6 @@ from tqdm import tqdm
 # Import uvloop if non-win32 platform
 if sys.platform != 'win32':
     import uvloop
-
-# Local imports
-from . import channel
-from . import stat
-from .core import BaseLoop, Client
-from .importhook import TaskImporter
-from .result import (SQLTimeSeries, SQLTotal, SQLTotalError, SQLTotalFailure,
-                     TimeSeries, Total, TotalError, TotalFailure)
-from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
-                   SendTimeData)
-from .util import ageniter, Event, EventType, LogLevel, Namespace, TZ_UTC
-
 
 # ============================================================================
 # Globals
@@ -160,6 +158,7 @@ async def update_tqdm(config, state, name):
 
         if state.reschedule is False:
             return
+
 
 async def stop_tqdm(exitcode, *, manager=None, state=None, name=None):
     """Stop tqdm updating"""
