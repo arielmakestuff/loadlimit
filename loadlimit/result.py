@@ -148,7 +148,7 @@ class Total(Result):
 
         # Number of iterations
         # This is a list of pandas.Series
-        total = countstore[name].success
+        total = countstore.success[name]
         numiter = len(data)
         if numiter == 0:
             vals.results[name] = None
@@ -363,7 +363,7 @@ class SQLTotal(SQLResult, Total):
         vals = self.vals
         countstore = self.countstore
 
-        total = countstore[name].success
+        total = countstore.success[name]
         numiter = len(dfdata.index)
         if numiter == 0:
             vals.results[name] = None
