@@ -117,8 +117,11 @@ class CoroMonitor:
             oldframe.success[self.name] += 1
             oldframe.client.add(self.clientid)
 
+        # Get drift
+        drift = curstart - frame.start
+
         # Set window's end time
-        frame.end = timeline.end
+        frame.end = timeline.end - drift
 
         # If oldframe was popped, add its values to current timeline
         if key == curstart:
@@ -254,17 +257,16 @@ class TimelineFrame(Frame):
 
     def mkwrapper(self, corofunc, *, name=None, clientid=None):
         """Create corofunc wrapper"""
-        monitor = CoroMonitor(self, corofunc, name, clientid)
 
         @wraps(corofunc)
         async def wrapper(*args, **kwargs):
+            monitor = CoroMonitor(self, corofunc, name, clientid)
             return await monitor(*args, **kwargs)
 
         return wrapper
 
     def __call__(self, corofunc=None, *, name=None, clientid=None):
         """Decorator that records rate and response time of a corofunc"""
-        # raise Exception('HERE')
         if name is None:
             raise ValueError('name not given')
         elif not isinstance(name, str):
@@ -324,7 +326,6 @@ class SendTimeData:
     async def send(self, timeline):
         """Send snapshot diff"""
         mkdata = self.mkdata
-        # end_date = snapshot.end_date
         channel = self._channel
         reset = False
         if self._start is None:
@@ -352,10 +353,12 @@ class SendTimeData:
             _, oldframe = timeline.oldest()
             frame.update(oldframe)
 
-        # Calculate
+        # Calculate raw delta
         if frame.end:
             curtime = frame.end
         delta = curtime - frame.start
+
+        # Calculate rate
         success_diff = frame.success[key]
         numclient = len(frame.client)
         rate = (success_diff / delta) if delta > 0 else 0
