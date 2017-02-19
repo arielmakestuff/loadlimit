@@ -61,53 +61,8 @@ timedata = DataChannel(name='timedata')
 
 
 # ============================================================================
-# Frame
+# CoroMonitor
 # ============================================================================
-
-
-class Frame:
-    __slots__ = ('start', 'end', 'client', 'success', 'error', 'failure')
-
-    def __init__(self, start=None, end=None):
-        self.start = start
-        self.end = end
-        self.reset()
-
-    def sum(self):
-        """Calculate the sum of all counters"""
-        chainiter = chain(
-            self.success.values(),
-            (c for e in self.error.values() for c in e.values()),
-            (c for f in self.failure.values() for c in f.values())
-        )
-        return sum(chainiter)
-
-    def reset(self):
-        """Reset all counters"""
-        self.client = set()
-        self.success = Counter()
-        self.error = defaultdict(Counter)
-        self.failure = defaultdict(Counter)
-
-    def update(self, frame):
-        """Add counts from other frame"""
-        # Update client ids
-        self.client.update(frame.client)
-
-        # Update success
-        self.success.update(frame.success)
-
-        # Dot optimizations
-        error = self.error
-        failure = self.failure
-
-        # Update errors and failures
-        for k, errcounter in frame.error.items():
-            error[k].update(errcounter)
-
-        # Update failures
-        for k, failcounter in frame.failure.items():
-            failure[k].update(failcounter)
 
 
 class CoroMonitor:
@@ -192,6 +147,56 @@ class CoroMonitor:
             self.errors = ErrorMessage(error, failure)
 
         return ret
+
+
+# ============================================================================
+# Frame
+# ============================================================================
+
+
+class Frame:
+    __slots__ = ('start', 'end', 'client', 'success', 'error', 'failure')
+
+    def __init__(self, start=None, end=None):
+        self.start = start
+        self.end = end
+        self.reset()
+
+    def sum(self):
+        """Calculate the sum of all counters"""
+        chainiter = chain(
+            self.success.values(),
+            (c for e in self.error.values() for c in e.values()),
+            (c for f in self.failure.values() for c in f.values())
+        )
+        return sum(chainiter)
+
+    def reset(self):
+        """Reset all counters"""
+        self.client = set()
+        self.success = Counter()
+        self.error = defaultdict(Counter)
+        self.failure = defaultdict(Counter)
+
+    def update(self, frame):
+        """Add counts from other frame"""
+        # Update client ids
+        self.client.update(frame.client)
+
+        # Update success
+        self.success.update(frame.success)
+
+        # Dot optimizations
+        error = self.error
+        failure = self.failure
+
+        # Update errors and failures
+        for k, errcounter in frame.error.items():
+            error[k].update(errcounter)
+
+        # Update failures
+        for k, failcounter in frame.failure.items():
+            failure[k].update(failcounter)
 
 
 class TimelineFrame(Frame):
