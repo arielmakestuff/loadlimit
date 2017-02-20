@@ -76,6 +76,7 @@ class CoroMonitor:
         self.clientid = clientid
         self.errors = ErrorMessage(None, None)
         self.curstart = None
+        timeline.names.add(name)
 
     def __enter__(self):
         timeline = self.timeline
@@ -201,9 +202,10 @@ class Frame:
 
 
 class TimelineFrame(Frame):
-    __slots__ = ('timeline', 'frame', 'start_date', 'end_date')
+    __slots__ = ('timeline', 'frame', 'start_date', 'end_date', 'names')
 
     def __init__(self):
+        self.names = set()
         self.timeline = OrderedDict()
         self.frame = self.newframe()
         self.start_date = None
@@ -336,7 +338,7 @@ class SendTimeData:
         async for k, count in ageniter(snapshot.items()):
         end_date = now()
         frame = timeline.frame
-        keys = set(chain(frame.success, frame.error, frame.failure))
+        keys = frozenset(timeline.names)
         async for k in ageniter(keys):
             data = mkdata(curtime, end_date, k, frame, reset=reset)
             await channel.send(data)
