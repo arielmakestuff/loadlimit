@@ -17,6 +17,7 @@ from asyncio import Lock
 from collections import (Counter, defaultdict, namedtuple, OrderedDict)
 from functools import partial, wraps
 from hashlib import sha1
+from inspect import iscoroutinefunction
 from itertools import chain, count
 from time import perf_counter
 
@@ -70,13 +71,24 @@ class CoroMonitor:
                  'curstart')
 
     def __init__(self, timeline, corofunc, name=None, clientid=None):
+        if not isinstance(timeline, TimelineFrame):
+            errmsg = ('timeline arg expected {} object, got {} object instead'.
+                      format(TimelineFrame.__name__, type(timeline).__name__))
+            raise TypeError(errmsg)
+        if not iscoroutinefunction(corofunc):
+            errmsg = ('corofunc arg expected coroutine function, '
+                      'got {} object instead'.
+                      format(type(corofunc).__name__))
+            raise TypeError(errmsg)
+
         self.timeline = timeline
         self.corofunc = corofunc
         self.name = name
         self.clientid = clientid
         self.errors = ErrorMessage(None, None)
         self.curstart = None
-        timeline.names.add(name)
+        if name is not None:
+            timeline.names.add(name)
 
     def __enter__(self):
         timeline = self.timeline
