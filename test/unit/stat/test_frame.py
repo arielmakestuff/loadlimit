@@ -15,13 +15,10 @@
 from collections import Counter, defaultdict
 
 # Third-party imports
-# from pandas import Timestamp
 import pytest
 
 # Local imports
-# import loadlimit.stat as stat
 from loadlimit.stat import (Frame)
-# from loadlimit.util import now
 
 
 # ============================================================================
@@ -167,6 +164,67 @@ def test_sum_all_counts(frame, maxlen):
 
     expected = sum(counts) + (sum(counts) * maxlen * 2)
     assert frame.sum() == expected
+
+
+# ============================================================================
+# Test update
+# ============================================================================
+
+
+def test_update_copy_counts(frame):
+    """Add counts from a frame into the current frame"""
+    # --------------------
+    # Setup
+    # --------------------
+    name = 'hello'
+    other = Frame(1, 2)
+    frame.success[name] = 40
+    frame.error[name]['err'] = 100
+
+    other.success[name] = 2
+    other.error[name]['err'] = 42
+    other.failure[name]['fail'] = 1
+
+    # --------------------
+    # Test
+    # --------------------
+    frame.update(other)
+
+    # Start and end times are not changed on either frame
+    assert frame.start is None
+    assert frame.end is None
+    assert other.start == 1
+    assert other.end == 2
+
+    # Success is updated on frame only
+    assert frame.success[name] == 42
+    assert other.success[name] == 2
+
+    # Error is updated on frame only
+    assert frame.error[name]['err'] == 142
+    assert other.error[name]['err'] == 42
+
+    # Failure is updated on frame only
+    assert frame.failure[name]['fail'] == 1
+    assert other.failure[name]['fail'] == 1
+
+
+@pytest.mark.parametrize('val', [42, 4.2, '42', (42, )])
+def test_update_badval(frame, val):
+    """Raise error if given a bad value"""
+    # --------------------
+    # Setup
+    # --------------------
+    expected = ('frame arg expected {} object, got {} object instead'.
+                format(Frame.__name__, type(val).__name__))
+
+    # --------------------
+    # Test
+    # --------------------
+    with pytest.raises(TypeError) as err:
+        frame.update(val)
+
+    assert err.value.args == (expected, )
 
 
 # ============================================================================
