@@ -340,12 +340,12 @@ class SendTimeData:
         frame = timeline.frame
         keys = frozenset(timeline.names)
         async for k in ageniter(keys):
-            data = mkdata(curtime, end_date, k, frame, reset=reset)
+            data = mkdata(timeline, curtime, end_date, k, frame, reset=reset)
             await channel.send(data)
 
-    def mkdata(self, curtime, end_date, key, snapshot, *, reset=False):
+    def mkdata(self, timeline, curtime, end_date, key, snapshot, *,
+               reset=False):
         """Calculate rate and response time"""
-        timeline = self._timeline
         # Create new frame and copy counts of current window
         frame = timeline.newframe()
         frame.update(snapshot)
