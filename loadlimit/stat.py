@@ -79,8 +79,6 @@ class CoroMonitor:
 
     def __enter__(self):
         timeline = self.timeline
-
-        start = timeline.start
         self.curstart = curstart = perf_counter()
 
         # Add a new frame
@@ -92,9 +90,9 @@ class CoroMonitor:
             timeline.frame.start = curstart
 
         # Set timeline's start time
-        if start is None:
+        if timeline.start is None:
             timeline.start_date = now()
-            timeline.start = start = curstart
+            timeline.start = curstart
 
     def __exit__(self, exctype, exc, exctb):
         error, failure = self.errors
@@ -127,7 +125,7 @@ class CoroMonitor:
         if key == curstart:
             timeline.update(oldframe)
 
-    async def __call__(self, *args, **kwargs):
+    async def __call__(self, args, kwargs):
         """Measure coroutine runtime"""
         timeline = self.timeline
 
@@ -250,6 +248,8 @@ class TimelineFrame(Frame):
     def oldest(self):
         """Get the oldest frame compared to frame started at framestart"""
         timeline = self.timeline
+        if not timeline:
+            return
 
         # Get oldest frame key
         key = next(iter(timeline))
@@ -261,7 +261,7 @@ class TimelineFrame(Frame):
         @wraps(corofunc)
         async def wrapper(*args, **kwargs):
             monitor = CoroMonitor(self, corofunc, name, clientid)
-            return await monitor(*args, **kwargs)
+            return await monitor(args, kwargs)
 
         return wrapper
 
