@@ -194,6 +194,10 @@ class Frame:
 
     def update(self, frame):
         """Add counts from other frame"""
+        if not isinstance(frame, Frame):
+            errmsg = ('frame arg expected {} object, got {} object instead'.
+                      format(Frame.__name__, type(frame).__name__))
+            raise TypeError(errmsg)
         # Update client ids
         self.client.update(frame.client)
 
@@ -204,7 +208,7 @@ class Frame:
         error = self.error
         failure = self.failure
 
-        # Update errors and failures
+        # Update errors
         for k, errcounter in frame.error.items():
             error[k].update(errcounter)
 
