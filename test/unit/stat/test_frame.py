@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 import pytest
 
 # Local imports
-from loadlimit.stat import (Frame)
+from loadlimit.stat import Frame
 
 
 # ============================================================================
