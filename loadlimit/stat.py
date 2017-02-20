@@ -36,9 +36,9 @@ from .util import ageniter, now
 # ============================================================================
 
 
-CountStoreData = namedtuple('CountStoreData',
-                            ['name', 'end', 'delta', 'rate', 'error',
-                             'failure', 'reset', 'clientcount'])
+FrameData = namedtuple('FrameData',
+                       ['name', 'end', 'delta', 'rate', 'error',
+                        'failure', 'reset', 'clientcount'])
 
 
 ErrorMessage = namedtuple('ErrorMessage', 'error failure')
@@ -383,9 +383,9 @@ class SendTimeData:
         error = frame.error[key]
         failure = frame.failure[key]
 
-        data = CountStoreData(name=key, end=end_date, delta=delta, rate=rate,
-                              error=error, failure=failure, reset=reset,
-                              clientcount=numclient)
+        data = FrameData(name=key, end=end_date, delta=delta, rate=rate,
+                         error=error, failure=failure, reset=reset,
+                         clientcount=numclient)
         return data
 
     async def shutdown(self, *args, **kwargs):
