@@ -28,7 +28,7 @@ import loadlimit.stat as stat
 
 def test_noresults(statsdict):
     """Set results to None if no results"""
-    measure = stat.CountStore()
+    measure = stat.TimelineFrame()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     with result.Total(statsdict=statsdict, countstore=measure) as r:
@@ -44,7 +44,7 @@ def test_noresults(statsdict):
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
-    measure = stat.CountStore()
+    measure = stat.TimelineFrame()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'
@@ -64,7 +64,7 @@ def test_calculate_nodata(statsdict):
 
 def test_export_nodata(monkeypatch, statsdict):
     """Do not call exportdf() if there are no results"""
-    measure = stat.CountStore()
+    measure = stat.TimelineFrame()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     calc = result.Total(statsdict=statsdict, countstore=measure)

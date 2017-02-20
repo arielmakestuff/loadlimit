@@ -19,7 +19,7 @@ import pytest
 
 # Local imports
 from loadlimit.result import SQLTotalError, SQLTotalFailure
-from loadlimit.stat import CountStore, Failure
+from loadlimit.stat import TimelineFrame, Failure
 
 
 # ============================================================================
@@ -30,7 +30,7 @@ from loadlimit.stat import CountStore, Failure
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_sqltotalerror_calculate(statsdict, exctype):
     """Create dataframe from given error data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = SQLTotalError(statsdict=statsdict, countstore=measure)
     err = exctype('hello')
@@ -61,7 +61,7 @@ def test_sqltotalerror_calculate(statsdict, exctype):
 
 def test_sqltotalfailure_calculate(statsdict):
     """Create dataframe from given failure data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = SQLTotalFailure(statsdict=statsdict, countstore=measure)
     err = Failure('hello')

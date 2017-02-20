@@ -22,7 +22,7 @@ import pytest
 
 # Local imports
 import loadlimit.stat as stat
-from loadlimit.stat import (CountStore, CountStoreData, DataChannel,
+from loadlimit.stat import (TimelineFrame, FrameData, DataChannel,
                             SendTimeData)
 from loadlimit.util import now
 
@@ -45,7 +45,7 @@ def fake_timedata(monkeypatch):
 
 def test_init_default_values():
     """Attrs get set to their default values"""
-    c = CountStore()
+    c = TimelineFrame()
     s = SendTimeData(c)
 
     assert s._countstore is c
@@ -56,7 +56,7 @@ def test_init_default_values():
 @pytest.mark.parametrize('val', [42, 4.2, '42', [42]])
 def test_init_bad_flushwait(val):
     """Raise error if flushwait arg is given a non-Timedelta value"""
-    c = CountStore()
+    c = TimelineFrame()
     expected = ('flushwait expected pandas.Timedelta, got {} instead'.
                 format(type(val).__name__))
 
@@ -69,7 +69,7 @@ def test_init_bad_flushwait(val):
 @pytest.mark.parametrize('val', [42, 4.2, '42', [42]])
 def test_init_bad_channel(val):
     """Raise error if channel arg is given a non-DataChannel value"""
-    c = CountStore()
+    c = TimelineFrame()
     expected = ('channel expected DataChannel, got {} instead'.
                 format(type(val).__name__))
 
@@ -87,7 +87,7 @@ def test_init_bad_channel(val):
 @pytest.mark.asyncio
 async def test_countdiff_no_prevcount():
     """Simply add the value if no prev count exists"""
-    c = CountStore()
+    c = TimelineFrame()
     s = SendTimeData(c)
 
     count = dict(hello=42)
@@ -99,7 +99,7 @@ async def test_countdiff_no_prevcount():
 @pytest.mark.asyncio
 async def test_countdiff_single_prevcount():
     """Return single key diff"""
-    c = CountStore()
+    c = TimelineFrame()
     s = SendTimeData(c)
 
     count = dict(hello=42)
@@ -111,7 +111,7 @@ async def test_countdiff_single_prevcount():
 @pytest.mark.asyncio
 async def test_countdiff_multi_prevcount():
     """Return multi key diff"""
-    c = CountStore()
+    c = TimelineFrame()
     s = SendTimeData(c)
 
     count = dict(hello=42, world=21, what=9001, now=40)
@@ -129,7 +129,7 @@ async def test_countdiff_multi_prevcount():
 async def test_mkdata_no_prevcount():
     """Send correct rate if prevcount is None"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     count = c[key]
     count.success += 1
     count.error['what'] += 1
@@ -140,7 +140,7 @@ async def test_mkdata_no_prevcount():
 
     data = await s.mkdata(delta, 42, key, c[key], None)
 
-    assert isinstance(data, CountStoreData)
+    assert isinstance(data, FrameData)
     assert data.name == key
     assert data.end == 42
     assert data.delta == 1
@@ -154,7 +154,7 @@ async def test_mkdata_no_prevcount():
 async def test_mkdata_zero_diff():
     """Diff of count and prevcount is 0 returns rate of 0"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c[key].success += 1
     count = c[key]
     s = SendTimeData(c)
@@ -169,7 +169,7 @@ async def test_mkdata_zero_diff():
 async def test_mkdata_diff():
     """Diff of count and prevcount returns correct rate"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c[key].success += 42
     count = c[key]
     prevcount = deepcopy(count)
@@ -186,7 +186,7 @@ async def test_mkdata_diff():
 async def test_mkdata_noenddate():
     """If no end date yet exists, one is created"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c[key].success += 42
     count = c[key]
     prevcount = deepcopy(count)
@@ -207,7 +207,7 @@ async def test_mkdata_noenddate():
 async def test_mkdata_reset(val):
     """Include given reset value in return value"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c[key].success += 42
     count = c[key]
     prevcount = deepcopy(count)
@@ -224,7 +224,7 @@ async def test_mkdata_reset(val):
 async def test_mkdata_window_data():
     """Use window_start to calculate delta"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     count = c[key]
     count.success = 43
     prevcount = None
@@ -248,7 +248,7 @@ async def test_mkdata_window_data():
 async def test_mkdata_ignore_window_data():
     """Ignore window_start"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     count = c[key]
     count.success = 42
     prevcount = None
@@ -278,7 +278,7 @@ async def test_mkdata_ignore_window_data():
 async def test_send_send():
     """Sends data through channel"""
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c.end_date = now()
     count = c[key]
     count.success += 1
@@ -300,7 +300,7 @@ async def test_send_send():
         await stat.timedata.join()
 
     curdate = now()
-    assert isinstance(checkdata, CountStoreData)
+    assert isinstance(checkdata, FrameData)
     assert checkdata.name == key
     assert curdate >= checkdata.end
     assert checkdata.end.floor('D') == curdate.floor('D')
@@ -313,7 +313,7 @@ async def test_send_diff():
     key = 'hello'
     prevtime, curtime = delta = (0, 2)
 
-    prev = CountStore()
+    prev = TimelineFrame()
     prev.end_date = now()
 
     snap = deepcopy(prev)
@@ -337,7 +337,7 @@ async def test_send_diff():
         await s.send(delta, snap, prev)
         await channel.join()
 
-    assert isinstance(checkdata, CountStoreData)
+    assert isinstance(checkdata, FrameData)
     assert checkdata.name == key
     assert checkdata.end == snap.end_date
     assert round(checkdata.delta) == curtime - prevtime
@@ -354,7 +354,7 @@ async def test_send_reset():
     key = 'hello'
     prevtime, curtime = delta = (0, 2)
 
-    prev = CountStore()
+    prev = TimelineFrame()
     prev.end_date = now()
 
     snap = deepcopy(prev)
@@ -394,7 +394,7 @@ async def test_send_reset():
         await s.send(delta, snap, prev)
         await channel.join()
 
-    assert all(isinstance(d, CountStoreData) for d in checkdata)
+    assert all(isinstance(d, FrameData) for d in checkdata)
     assert len(checkdata) == 2
     assert checkdata[0].reset is False
     assert checkdata[1].reset is True
@@ -408,7 +408,7 @@ async def test_send_reset():
 @pytest.mark.usefixtures('fake_timedata')
 def test_call_stop_after_sleep(testloop):
     """Break out of loop if stop is True"""
-    c = CountStore()
+    c = TimelineFrame()
     channel = stat.timedata
     s = SendTimeData(c, channel=channel,
                      flushwait=to_timedelta(0.1, unit='s'))
@@ -453,7 +453,7 @@ def test_call_stop_after_send(testloop):
             await self.shutdown()
 
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c.end_date = now()
     count = c[key]
     count.success += 1
@@ -500,7 +500,7 @@ def test_call_stop_after_send_aftersleep(testloop):
             self._calledcount += 1
 
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     c.end_date = now()
     count = c[key]
     count.success += 1
@@ -535,7 +535,7 @@ def test_call_send(testloop):
             await channel.join()
 
     key = 'hello'
-    c = CountStore()
+    c = TimelineFrame()
     channel = stat.timedata
     s = Custom(c, channel=channel, flushwait=to_timedelta(0.1, unit='s'))
     called = False
@@ -569,7 +569,7 @@ def test_call_send(testloop):
     assert checkdata is not None
 
     curdate = now()
-    assert isinstance(checkdata, CountStoreData)
+    assert isinstance(checkdata, FrameData)
     assert checkdata.name == key
     assert checkdata.end <= curdate
     assert checkdata.end.floor('D') == curdate.floor('D')

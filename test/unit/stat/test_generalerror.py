@@ -19,7 +19,7 @@ import pytest
 
 # Local imports
 from loadlimit.result import TotalError, TotalFailure
-from loadlimit.stat import CountStore, Failure
+from loadlimit.stat import TimelineFrame, Failure
 
 
 # ============================================================================
@@ -30,7 +30,7 @@ from loadlimit.stat import CountStore, Failure
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_totalerror_calculate_data(statsdict, exctype):
     """Create dataframe from given error/failure data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = TotalError(statsdict=statsdict, countstore=measure)
     err = exctype('hello')
@@ -58,7 +58,7 @@ def test_totalerror_calculate_data(statsdict, exctype):
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_totalerror_calculate_nodata(statsdict, exctype):
     """Create dataframe from given error/failure data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = TotalError(statsdict=statsdict, countstore=measure)
     err = exctype('hello')
@@ -80,7 +80,7 @@ def test_totalerror_calculate_nodata(statsdict, exctype):
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_totalerror_export(monkeypatch, statsdict, exctype):
     """Call exportdf() if there are results"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = TotalError(statsdict=statsdict, countstore=measure)
     err = exctype('hello')
@@ -120,7 +120,7 @@ def test_totalerror_export(monkeypatch, statsdict, exctype):
 
 def test_totalfailure_calculate_data(statsdict):
     """Create dataframe from given failure data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = TotalFailure(statsdict=statsdict, countstore=measure)
     err = Failure('hello')
@@ -147,7 +147,7 @@ def test_totalfailure_calculate_data(statsdict):
 
 def test_totalfailure_calculate_nodata(statsdict):
     """Create dataframe from given failure data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = TotalFailure(statsdict=statsdict, countstore=measure)
     err = Failure('hello')
@@ -169,7 +169,7 @@ def test_totalfailure_calculate_nodata(statsdict):
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_totalfailure_export(monkeypatch, statsdict, exctype):
     """Call exportdf() if there are results"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = TotalFailure(statsdict=statsdict, countstore=measure)
     err = Failure('hello')

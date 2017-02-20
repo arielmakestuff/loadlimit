@@ -25,7 +25,7 @@ import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
 from loadlimit.result import SQLTotal
 import loadlimit.stat as stat
-from loadlimit.stat import CountStore, SendTimeData
+from loadlimit.stat import TimelineFrame, SendTimeData
 from loadlimit.util import aiter
 
 
@@ -60,7 +60,7 @@ def test_flushtosql(testloop, num):
     * there's still some data remaining that needs to be flushed to sql db
 
     """
-    measure = CountStore()
+    measure = TimelineFrame()
 
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')

@@ -23,7 +23,7 @@ import loadlimit.channel as channel
 from loadlimit.core import BaseLoop
 from loadlimit.result import Total
 import loadlimit.stat as stat
-from loadlimit.stat import CountStore, Failure, SendTimeData
+from loadlimit.stat import TimelineFrame, Failure, SendTimeData
 from loadlimit.util import aiter
 
 
@@ -44,7 +44,7 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 def test_updateperiod_coro(testloop):
     """updateperiod updates statsdict with timeseries data points"""
 
-    measure = CountStore()
+    measure = TimelineFrame()
     results = Total(countstore=measure)
 
     # Create coro to time
@@ -100,7 +100,7 @@ def test_updateperiod_coro(testloop):
 @pytest.mark.parametrize('exctype', [Exception, RuntimeError, ValueError])
 def test_adderror(exctype, testloop):
     """updateperiod adds errors to statsdict"""
-    measure = CountStore()
+    measure = TimelineFrame()
     statsdict = stat.Period()
     timedata = stat.timedata
     err = exctype(42)
@@ -151,7 +151,7 @@ def test_adderror(exctype, testloop):
 
 def test_addfailure(testloop):
     """updateperiod adds errors to statsdict"""
-    measure = CountStore()
+    measure = TimelineFrame()
     statsdict = stat.Period()
     timedata = stat.timedata
     fail = Failure(42)
@@ -203,7 +203,7 @@ def test_addfailure(testloop):
 def test_updateperiod_reset(testloop):
     """updateperiod clears statsdict if it gets a reset"""
 
-    measure = CountStore()
+    measure = TimelineFrame()
     results = Total(countstore=measure)
 
     # Create coro to time

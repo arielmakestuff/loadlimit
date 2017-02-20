@@ -18,7 +18,7 @@ from pandas import DataFrame
 
 # Local imports
 from loadlimit.result import SQLTimeSeries
-from loadlimit.stat import CountStore
+from loadlimit.stat import TimelineFrame
 
 
 # ============================================================================
@@ -28,7 +28,7 @@ from loadlimit.stat import CountStore
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = SQLTimeSeries(statsdict=statsdict, countstore=measure)
     empty = DataFrame()

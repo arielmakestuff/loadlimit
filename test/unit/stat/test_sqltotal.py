@@ -18,7 +18,7 @@ from pandas import DataFrame, Timestamp, to_timedelta
 
 # Local imports
 from loadlimit.result import SQLTotal
-from loadlimit.stat import CountStore
+from loadlimit.stat import TimelineFrame
 
 
 # ============================================================================
@@ -28,7 +28,7 @@ from loadlimit.stat import CountStore
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     measure.start_date = s = Timestamp.now(tz='UTC')
     measure.end_date = s + to_timedelta(5, unit='s')
     key = '42'

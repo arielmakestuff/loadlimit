@@ -26,7 +26,7 @@ from loadlimit.core import BaseLoop
 import loadlimit.result as result
 from loadlimit.result import SQLTimeSeries, TimeSeries
 import loadlimit.stat as stat
-from loadlimit.stat import (CountStore, flushtosql, flushtosql_shutdown,
+from loadlimit.stat import (TimelineFrame, flushtosql, flushtosql_shutdown,
                             SendTimeData)
 from loadlimit.util import aiter
 
@@ -47,7 +47,7 @@ pytestmark = pytest.mark.usefixtures('fake_shutdown_channel',
 
 def test_return_two_df(testloop):
     """Timeseries generates 2 dataframes"""
-    measure = CountStore()
+    measure = TimelineFrame()
     results = TimeSeries(countstore=measure)
 
     # Create coro to time
@@ -98,7 +98,7 @@ def test_return_two_df(testloop):
 @pytest.mark.parametrize('num', [1000])
 def test_sqltimeseries(testloop, num):
     """SQL timeseries works well"""
-    measure = CountStore()
+    measure = TimelineFrame()
 
     # Setup sqlalchemy engine
     engine = create_engine('sqlite://')
@@ -165,7 +165,7 @@ def test_sqltimeseries(testloop, num):
 
 def test_calculate_nodata(statsdict):
     """Set results for a key to None if no data"""
-    measure = CountStore()
+    measure = TimelineFrame()
     key = '42'
     calc = result.TimeSeries(statsdict=statsdict, countstore=measure)
     calc.__enter__()
@@ -184,7 +184,7 @@ def test_calculate_nodata(statsdict):
 
 def test_export_nodata(monkeypatch, statsdict):
     """Do not call exportdf() if there are no results"""
-    measure = CountStore()
+    measure = TimelineFrame()
     calc = TimeSeries(statsdict=statsdict, countstore=measure)
     called = False
 
