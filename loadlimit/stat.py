@@ -114,7 +114,7 @@ class CoroMonitor:
         curstart = self.curstart
 
         # Get oldest frame
-        key, oldframe = timeline.oldest()
+        oldframe = timeline.oldest()
 
         # Remove current frame from window
         timeline.popframe(curstart)
@@ -135,7 +135,7 @@ class CoroMonitor:
         frame.end = timeline.end - drift
 
         # If oldframe was popped, add its values to current timeline
-        if key == curstart:
+        if oldframe.start == curstart:
             timeline.update(oldframe)
 
     async def __call__(self, args, kwargs):
@@ -236,7 +236,7 @@ class TimelineFrame(Frame):
     def addframe(self, frame):
         """Add a frame to the timeline"""
         if not isinstance(frame, Frame):
-            errmsg = ('frame expected {} object, got {} object instead'.
+            errmsg = ('frame arg expected {} object, got {} object instead'.
                       format(Frame.__name__, type(frame).__name__))
             raise TypeError(errmsg)
 
@@ -250,18 +250,17 @@ class TimelineFrame(Frame):
         # Pop current frame
         return self.timeline.pop(framestart)
 
-    def resetclient(self):
-        """Set client to a new empty set"""
+    def resetframe(self):
+        """Set timeline frame to a new empty frame"""
         self.frame = curframe = self.newframe()
-        timeline = self.timeline
-        if timeline:
-            _, oldframe = self.oldest()
+        if self.timeline:
+            oldframe = self.oldest()
             curframe.start = oldframe.start
 
     def update(self, frame):
         """Add counts from given frame"""
-        self.frame.update(frame)
         super().update(frame)
+        self.frame.update(frame)
 
     def oldest(self):
         """Get the oldest frame compared to frame started at framestart"""
@@ -271,7 +270,7 @@ class TimelineFrame(Frame):
 
         # Get oldest frame key
         key = next(iter(timeline))
-        return key, timeline[key]
+        return timeline[key]
 
     def mkwrapper(self, corofunc, *, name=None, clientid=None):
         """Create corofunc wrapper"""
@@ -337,7 +336,7 @@ class SendTimeData:
             if self.stop:
                 break
             await sendfunc(timeline)
-            timeline.resetclient()
+            timeline.resetframe()
             if self.stop:
                 break
 
@@ -368,7 +367,7 @@ class SendTimeData:
         frame.start = snapshot.start
         frame.end = snapshot.end
         if timeline.timeline:
-            _, oldframe = timeline.oldest()
+            oldframe = timeline.oldest()
             frame.update(oldframe)
 
         # Calculate raw delta
