@@ -434,6 +434,8 @@ class DataChannel:
 
         """
         self.logger.debug('channel {name}: shutdown')
+        if self._state == ChannelState.closed:
+            return
         self._openqueue.clear()
         self._state = ChannelState.closing
         self.stop()

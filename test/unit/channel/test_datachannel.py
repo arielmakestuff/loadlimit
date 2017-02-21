@@ -25,7 +25,7 @@ import pytest
 from loadlimit.channel import (AnchorType, ChannelState, ChannelClosedError,
                                ChannelListeningError, ChannelOpenError,
                                DataChannel, NotListeningError)
-from loadlimit.util import aiter, Namespace
+from loadlimit.util import aiter, LogLevel, Namespace
 
 
 # ============================================================================
@@ -689,6 +689,34 @@ def test_datachannel_send_wait_notopened(testloop, testchannel):
     testloop.run_until_complete(run())
 
     assert not val
+
+
+def test_datachannel_multiple_shutdown(caplog, testloop, testchannel):
+    """Shutdown channel can be called multiple times"""
+    val = 0
+
+    @testchannel
+    async def one(data):
+        """one"""
+        nonlocal val
+        val += 1
+
+    async def run():
+        """run"""
+        for i in range(10):
+            await testchannel.send(i)
+        await testchannel.shutdown()
+        await testchannel.shutdown()
+
+    level = LogLevel.DEBUG
+    with caplog.at_level(level.value):
+        with testchannel.open():
+            testchannel.start()
+            testloop.run_until_complete(run())
+
+        records = [r for r in caplog.records if r.name != 'asyncio'
+                   and r.message.endswith(': shutdown')]
+        assert len(records) == 2
 
 
 # ============================================================================
