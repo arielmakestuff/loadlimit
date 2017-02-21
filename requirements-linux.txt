@@ -3,7 +3,6 @@ numexpr==2.6.2
 bottleneck==1.2.0
 
 # Optional dependencies for pandas
-tables==3.3.0
 
 # Other
 uvloop==0.8.0
