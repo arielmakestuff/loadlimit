@@ -47,7 +47,7 @@ from .result import (SQLTimeSeries, SQLTotal, SQLTotalError, SQLTotalFailure,
                      TimeSeries, Total, TotalError, TotalFailure)
 from .stat import (flushtosql, flushtosql_shutdown, measure, Period,
                    SendTimeData)
-from .util import aiter, Event, EventType, LogLevel, Namespace, TZ_UTC
+from .util import ageniter, Event, EventType, LogLevel, Namespace, TZ_UTC
 
 
 # ============================================================================
@@ -310,10 +310,10 @@ class MainLoop(BaseLoop):
         state.event.append(Event(EventType.init_start))
         while True:
             if numclients <= rate:
-                async for c in aiter(clients):
+                async for c in ageniter(clients):
                     addtask(ensure_future(c.init(config, state), loop=loop))
                 break
-            async for i in aiter(range(rate)):
+            async for i in ageniter(range(rate)):
                 c = clients.pop()
                 addtask(ensure_future(c.init(config, state), loop=loop))
             numclients = len(clients)
@@ -396,7 +396,7 @@ class MainLoop(BaseLoop):
 
         # Stop rescheduling clients
         state.reschedule = False
-        async for client in aiter(self.clients):
+        async for client in ageniter(self.clients):
             client.option.reschedule = False
 
         # Send shutdown command

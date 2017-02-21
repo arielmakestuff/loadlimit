@@ -24,7 +24,7 @@ from itertools import count
 # Third-party imports
 
 # Local imports
-from .util import aiter, Logger
+from .util import ageniter, Logger
 
 
 # ============================================================================
@@ -261,7 +261,7 @@ class DataChannel:
 
     async def aremove(self, key):
         """Asynchronously remove the added coro func with the given key"""
-        async for anchortype, tdict in aiter(self._tasks.items()):
+        async for anchortype, tdict in ageniter(self._tasks.items()):
             if key in tdict:
                 tdict.__delitem__(key)
                 break
@@ -373,10 +373,10 @@ class DataChannel:
         """Run listeners syncronously"""
         order = [AnchorType.first, AnchorType.none, AnchorType.last]
 
-        async for anchortype in aiter(order):
+        async for anchortype in ageniter(order):
             g = tasks[anchortype].values()
             generator = (reversed(g) if anchortype == AnchorType.last else g)
-            async for corofunc in aiter(generator):
+            async for corofunc in ageniter(generator):
                 await corofunc(data, **kwargs)
                 await sleep(0)
             await sleep(0)
@@ -386,7 +386,7 @@ class DataChannel:
         """Schedule listeners"""
         order = [AnchorType.first, AnchorType.none, AnchorType.last]
 
-        async for anchortype in aiter(order):
+        async for anchortype in ageniter(order):
             t = [ensure_future(corofunc(data, **kwargs), loop=loop)
                  for corofunc in tasks[anchortype].values()]
             if t:
@@ -583,7 +583,7 @@ class CommandChannel(DataChannel):
     async def aremove(self, key):
         """Asynchronously remove the added coro func with the given key"""
         switch_tasks = self._switch_tasks
-        async for command in aiter(self._tasks):
+        async for command in ageniter(self._tasks):
             with switch_tasks(command):
                 try:
                     await super().aremove(key)

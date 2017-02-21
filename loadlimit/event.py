@@ -21,7 +21,7 @@ from functools import wraps
 # Third-party imports
 
 # Local imports
-from .util import aiter, Namespace
+from .util import ageniter, Namespace
 
 
 # ============================================================================
@@ -240,7 +240,7 @@ class LoadLimitEvent:
             result = Namespace(**future.result())
 
             # Run non-scheduled coro funcs
-            async for corofunc in aiter(self._cb):
+            async for corofunc in ageniter(self._cb):
                 await corofunc(result, **kwargs)
 
             # schedule all tasks
@@ -576,7 +576,7 @@ class Anchor(LoadLimitEvent):
                 await corofunc(result, **kwargs)
 
             # Run async callbacks
-            async for cb in aiter(self._cb):
+            async for cb in ageniter(self._cb):
                 await cb(result, **kwargs)
 
             # schedule all tasks

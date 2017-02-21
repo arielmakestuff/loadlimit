@@ -92,7 +92,14 @@ class AsyncIterator:
             raise StopAsyncIteration
         return value
 
+
 aiter = AsyncIterator
+
+
+async def ageniter(gen):
+    """Wrap an iterator in an async generator"""
+    for item in gen:
+        yield item
 
 
 # ============================================================================
@@ -116,8 +123,8 @@ class Logger:
         """Return a logger method"""
         if name not in self._lognames:
             raise ValueError('Unknown log function name: {}'.format(name))
-        l = getattr(LogLevel, name.upper())
-        return partial(self.log, l)
+        level = getattr(LogLevel, name.upper())
+        return partial(self.log, level)
 
     def log(self, level, message, *args, exc_info=None, **kwargs):
         """Log message at the given level"""
@@ -172,7 +179,7 @@ class Event(Sequence):
             msg = 'logger arg expected {} object, got {} object instead'
             raise TypeError(msg.format(Logger.__name__, type(logger).__name__))
 
-        self._val = val = (event_type, timestamp)
+        self._val = (event_type, timestamp)
 
         if logger is not None:
             msg = dict(name=event_type.name, timestamp=str(timestamp))
@@ -182,7 +189,7 @@ class Event(Sequence):
         return self._val[key]
 
     def __len__(self):
-       return len(self._val)
+        return len(self._val)
 
     @property
     def type(self):

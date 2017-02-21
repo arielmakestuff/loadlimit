@@ -29,7 +29,7 @@ from pandas.io import sql
 
 # Local imports
 from .channel import AnchorType, DataChannel
-from .util import aiter, now
+from .util import ageniter, now
 
 
 # ============================================================================
@@ -253,7 +253,7 @@ class SendTimeData:
         elif snapshot.start != self._start:
             reset = True
             self._start = snapshot.start
-        async for k, count in aiter(snapshot.items()):
+        async for k, count in ageniter(snapshot.items()):
             prevcount = None if prevsnapshot is None else prevsnapshot[k]
             data = await mkdata(delta, end_date, k, count, prevcount,
                                 reset=reset)
@@ -291,7 +291,7 @@ class SendTimeData:
     async def countdiff(self, count, prevcount):
         """Return dictionary with count differences"""
         diff = {}
-        async for k, v in aiter(count.items()):
+        async for k, v in ageniter(count.items()):
             diff[k] = v - prevcount[k] if k in prevcount else v
         return diff
 
@@ -336,8 +336,8 @@ class Period(defaultdict):
     async def atotal(self):
         """Async total calculator"""
         ret = 0
-        async for datatype in aiter(self.values()):
-            async for datalist in aiter(datatype.values()):
+        async for datatype in ageniter(self.values()):
+            async for datalist in ageniter(datatype.values()):
                 ret = ret + len(datalist)
                 await asyncio.sleep(0)
         self.numdata = ret
@@ -415,8 +415,8 @@ class Period(defaultdict):
     async def aclearvals(self, key=None):
         """Async version of clearvals()"""
         genkey = (k for k in [key]) if key is not None else (k for k in self)
-        async for k in aiter(genkey):
-            async for datalist in aiter(self[k].values()):
+        async for k in ageniter(genkey):
+            async for datalist in ageniter(self[k].values()):
                 datalist.clear()
                 await asyncio.sleep(0)
 
@@ -455,7 +455,7 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
 
         # In-memory dict
         if error:
-            async for k, c in aiter(error.items()):
+            async for k, c in ageniter(error.items()):
                 if c == 0:
                     continue
                 error_rate = (c / delta) if delta > 0 else 0
@@ -466,7 +466,7 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
                                    'count'])
                 statsdict.adderror(name, se)
         if failure:
-            async for k, c in aiter(failure.items()):
+            async for k, c in ageniter(failure.items()):
                 if c == 0:
                     continue
                 failure_rate = (c / delta) if delta > 0 else 0
@@ -495,7 +495,7 @@ class FlushToSQL:
                 return
 
             with sqlengine.begin() as conn:
-                async for k in aiter(statsdict):
+                async for k in ageniter(statsdict):
                     # Generate table name
                     curkey = sha1(k.encode('utf-8')).hexdigest()
                     for n in ['flushdata', 'flusherror', 'flushfailure']:
