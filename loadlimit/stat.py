@@ -176,6 +176,15 @@ class Frame:
         self.end = end
         self.reset()
 
+    def __bool__(self):
+        """True if contains any counts > 0"""
+        chainiter = chain(
+            self.success.values(),
+            (c for e in self.error.values() for c in e.values()),
+            (c for f in self.failure.values() for c in f.values())
+        )
+        return any(v > 0 for v in chainiter)
+
     def sum(self):
         """Calculate the sum of all counters"""
         chainiter = chain(
@@ -324,6 +333,8 @@ class SendTimeData:
                            flushwait.total_seconds())
         self._channel = timedata if channel is None else channel
         self._start = None
+        self._cur_time = None
+        self._last_time = None
 
     async def __call__(self):
         """Store timedata"""
@@ -350,7 +361,8 @@ class SendTimeData:
         elif timeline.start != self._start:
             reset = True
             self._start = timeline.start
-        curtime = perf_counter()
+        self._last_time = self._cur_time
+        self._cur_time = curtime = perf_counter()
         end_date = now()
         frame = timeline.frame
         keys = frozenset(timeline.names)
@@ -366,18 +378,27 @@ class SendTimeData:
         frame.update(snapshot)
         frame.start = snapshot.start
         frame.end = snapshot.end
+        extra_clients = 0
         if timeline.timeline:
             oldframe = timeline.oldest()
-            frame.update(oldframe)
+            extra_clients = len(oldframe.client)
+            if extra_clients:
+                frame.update(oldframe)
+                frame.end = curtime
 
-        # Calculate raw delta
         if frame.end:
             curtime = frame.end
+
+        # Calculate raw delta
+        send_delta = (self._cur_time if self._last_time is None
+                      else self._cur_time - self._last_time)
         delta = 0 if frame.start is None else curtime - frame.start
+        if delta > 0 and delta < send_delta:
+            delta = send_delta
 
         # Calculate rate
         success_diff = frame.success[key]
-        numclient = len(frame.client)
+        numclient = len(frame.client) + extra_clients
         rate = (success_diff / delta) if delta > 0 else 0
 
         error = frame.error[key]
