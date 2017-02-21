@@ -373,7 +373,7 @@ class SendTimeData:
         # Calculate raw delta
         if frame.end:
             curtime = frame.end
-        delta = curtime - frame.start
+        delta = 0 if frame.start is None else curtime - frame.start
 
         # Calculate rate
         success_diff = frame.success[key]
