@@ -350,7 +350,7 @@ class SendTimeData:
         elif timeline.start != self._start:
             reset = True
             self._start = timeline.start
-        async for k, count in ageniter(snapshot.items()):
+        curtime = perf_counter()
         end_date = now()
         frame = timeline.frame
         keys = frozenset(timeline.names)
