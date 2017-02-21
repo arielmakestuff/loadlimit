@@ -453,5 +453,30 @@ def test_loop_custom(testloop):
 
 
 # ============================================================================
+# Test shutting down multiple times
+# ============================================================================
+
+
+def test_multiple_shutdown(caplog, testloop):
+    """Main loop shutdown can be invoked multiple times"""
+
+    async def multi_shutdown(baseloop):
+        """Check if baseloop is still running"""
+        result = Namespace(exitcode=0)
+        for i in range(2):
+            asyncio.ensure_future(core.shutdown(result, manager=baseloop))
+
+    level = LogLevel.INFO
+    with caplog.at_level(level.value):
+        with BaseLoop(loglevel=level) as baseloop:
+            asyncio.ensure_future(multi_shutdown(baseloop))
+            baseloop.start()
+
+        records = [r for r in caplog.records if r.name != 'asyncio'
+                   and r.message == 'shutdown']
+        assert len(records) == 2
+
+
+# ============================================================================
 #
 # ============================================================================

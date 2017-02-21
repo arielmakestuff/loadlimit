@@ -41,7 +41,9 @@ async def shutdown(exitcode, *, manager=None):
     """Coroutine that shuts down the loop"""
     # manager is an instance of BaseLoop
     manager.logger.info('shutdown')
-    manager._loopend.set_result(exitcode)
+    loopend = manager._loopend
+    if not loopend.done():
+        loopend.set_result(exitcode)
 
 
 # ============================================================================
