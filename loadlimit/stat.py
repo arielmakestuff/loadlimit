@@ -333,10 +333,10 @@ class Timeline:
 
     def mkwrapper(self, corofunc, *, name=None, clientid=None):
         """Create corofunc wrapper"""
-        timeline = self._timeline[name]
 
         @wraps(corofunc)
         async def wrapper(*args, **kwargs):
+            timeline = self._timeline[name]
             monitor = CoroMonitor(timeline, corofunc, name, clientid)
             return await monitor(args, kwargs)
 
