@@ -87,8 +87,6 @@ class CoroMonitor:
         self.clientid = clientid
         self.errors = ErrorMessage(None, None)
         self.curstart = None
-        if name is not None:
-            timeline.names.add(name)
 
     def __enter__(self):
         timeline = self.timeline
@@ -102,10 +100,14 @@ class CoroMonitor:
         if timeline.frame.start is None:
             timeline.frame.start = curstart
 
-        # Set timeline's start time
-        if timeline.start is None:
-            timeline.start_date = now()
-            timeline.start = curstart
+        start_date = now()
+
+        # Set timeline and timeline parent's start time
+        for tl in [timeline, timeline.parent]:
+            if tl.start is None:
+                tl.start = curstart
+                if hasattr(tl, 'start_date'):
+                    tl.start_date = start_date
 
         if timeline.markphase:
             timeline.phasestart = curstart
@@ -126,28 +128,34 @@ class CoroMonitor:
 
         # Update oldest frame
         if failure is not None:
-            oldframe.failure[self.name][failure] += 1
+            oldframe.failure[failure] += 1
         elif error is not None:
-            oldframe.error[self.name][error] += 1
+            oldframe.error[error] += 1
         else:
-            oldframe.success[self.name] += 1
+            oldframe.success += 1
             oldframe.client.add(self.clientid)
 
         # Get drift
         # drift = curstart - (frame.start if timeline.phasestart is None
         #                     else timeline.phasestart)
-        drift = curstart - timeline.phasestart
+        phasestart = timeline.phasestart
+        drift = curstart - phasestart
+        if drift < 0:
+            drift = 0
 
         # Set window's end time
         # frame.end = (timeline.end if frame.end and curstart >= frame.end
         #              else timeline.end - drift)
         frame.end = timeline.end - drift
+        #  print('WINDOW SIZE', phasestart, drift, frame.end - frame.start, timeline.end - curstart)
 
         # If oldframe was popped, add its values to current timeline
         if oldframe.start == curstart:
             timeline.update(oldframe)
-            timeline.markphase = True
-            # timeline.phasestart = None
+            #  timeline.markphase = True
+            if phasestart == curstart:
+                timeline.markphase = True
+                # timeline.phasestart = None
 
     async def __call__(self, args, kwargs):
         """Measure coroutine runtime"""
@@ -168,7 +176,9 @@ class CoroMonitor:
                 error = repr(e)
             finally:
                 timeline.end = end = perf_counter()
-                timeline.end_date = now()
+                parent = timeline.parent
+                parent.end = end
+                parent.end_date = now()
                 curframe = timeline.timeline[self.curstart]
                 curframe.end = end
             self.errors = ErrorMessage(error, failure)
@@ -191,28 +201,20 @@ class Frame:
 
     def __bool__(self):
         """True if contains any counts > 0"""
-        chainiter = chain(
-            self.success.values(),
-            (c for e in self.error.values() for c in e.values()),
-            (c for f in self.failure.values() for c in f.values())
-        )
+        chainiter = chain([self.success], e.values(), f.values())
         return any(v > 0 for v in chainiter)
 
     def sum(self):
         """Calculate the sum of all counters"""
-        chainiter = chain(
-            self.success.values(),
-            (c for e in self.error.values() for c in e.values()),
-            (c for f in self.failure.values() for c in f.values())
-        )
+        chainiter = chain([self.success], e.values(), f.values())
         return sum(chainiter)
 
     def reset(self):
         """Reset all counters"""
         self.client = set()
-        self.success = Counter()
-        self.error = defaultdict(Counter)
-        self.failure = defaultdict(Counter)
+        self.success = 0
+        self.error = Counter()
+        self.failure = Counter()
 
     def update(self, frame):
         """Add counts from other frame"""
@@ -224,31 +226,30 @@ class Frame:
         self.client.update(frame.client)
 
         # Update success
-        self.success.update(frame.success)
+        self.success += frame.success
 
         # Dot optimizations
         error = self.error
         failure = self.failure
 
         # Update errors
-        for k, errcounter in frame.error.items():
-            error[k].update(errcounter)
+        error.update(frame.error)
 
         # Update failures
-        for k, failcounter in frame.failure.items():
-            failure[k].update(failcounter)
+        failure.update(frame.failure)
 
 
 class TimelineFrame(Frame):
-    __slots__ = ('timeline', 'frame', 'start_date', 'end_date', 'names',
-                 'phasestart', 'markphase')
+    __slots__ = ('timeline', 'frame', 'parent', 'phasestart', 'markphase')
 
-    def __init__(self):
-        self.names = set()
+    def __init__(self, parent):
+        if not isinstance(parent, Timeline):
+            errmsg = ('parent arg expected {} object, got {} object instead'.
+                      format(Timeline.__name__, type(parent).__name__))
+            raise TypeError(errmsg)
         self.timeline = OrderedDict()
         self.frame = self.newframe()
-        self.start_date = None
-        self.end_date = None
+        self.parent = parent
         self.phasestart = None
         self.markphase = True
         super().__init__()
@@ -276,7 +277,7 @@ class TimelineFrame(Frame):
         return self.timeline.pop(framestart)
 
     def resetframe(self):
-        """Set timeline frame to a new empty frame"""
+        """Set timeline frame to new empty frames"""
         self.frame = curframe = self.newframe()
         if self.timeline:
             oldframe = self.oldest()
@@ -299,12 +300,44 @@ class TimelineFrame(Frame):
         key = next(iter(timeline))
         return timeline[key]
 
+
+class Timeline:
+    __slots__ = ('_timeline', 'start', 'end', 'start_date', 'end_date')
+
+    def __init__(self):
+        self._timeline = defaultdict(partial(TimelineFrame, self))
+        self.start = None
+        self.end = None
+        self.start_date = None
+        self.end_date = None
+
+    def __getitem__(self, name):
+        return self._timeline[name]
+
+    def __iter__(self):
+        return iter(self._timeline)
+
+    def items(self):
+        return self._timeline.items()
+
+    def values(self):
+        return self._timeline.values()
+
+    def keys(self):
+        return self._timeline.keys()
+
+    def reset(self):
+        """Set timeline frame to new empty frames"""
+        for timeline in self._timeline.values():
+            timeline.resetframe()
+
     def mkwrapper(self, corofunc, *, name=None, clientid=None):
         """Create corofunc wrapper"""
+        timeline = self._timeline[name]
 
         @wraps(corofunc)
         async def wrapper(*args, **kwargs):
-            monitor = CoroMonitor(self, corofunc, name, clientid)
+            monitor = CoroMonitor(timeline, corofunc, name, clientid)
             return await monitor(args, kwargs)
 
         return wrapper
@@ -325,7 +358,7 @@ class TimelineFrame(Frame):
         return deco(corofunc)
 
 
-measure = TimelineFrame()
+measure = Timeline()
 
 
 # ============================================================================
@@ -365,7 +398,6 @@ class SendTimeData:
             if self.stop:
                 break
             await sendfunc(timeline)
-            timeline.resetframe()
             if self.stop:
                 break
 
@@ -382,25 +414,28 @@ class SendTimeData:
         self._last_time = self._cur_time
         self._cur_time = curtime = perf_counter()
         end_date = now()
-        frame = timeline.frame
-        keys = frozenset(timeline.names)
+        keys = frozenset(timeline)
         async for k in ageniter(keys):
-            data = mkdata(timeline, curtime, end_date, k, frame, reset=reset)
+            tlframe = timeline[k]
+            data = mkdata(k, tlframe, curtime, end_date, reset=reset)
             await channel.send(data)
 
-    def mkdata(self, timeline, curtime, end_date, key, snapshot, *,
-               reset=False):
+            # Reset timeline
+            tlframe.resetframe()
+
+    def mkdata(self, key, timeline, curtime, end_date, *, reset=False):
         """Calculate rate and response time"""
+        snapshot = timeline.frame
         # Create new frame and copy counts of current window
         frame = timeline.newframe()
         frame.update(snapshot)
         frame.start = snapshot.start
         frame.end = snapshot.end
-        extra_clients = 0
+        #  extra_clients = 0
         if timeline.timeline:
             oldframe = timeline.oldest()
             frame.update(oldframe)
-            extra_clients = len(oldframe.client)
+            #  extra_clients = len(oldframe.client)
             # if extra_clients:
             #     frame.update(oldframe)
             #     frame.end = curtime
@@ -418,13 +453,14 @@ class SendTimeData:
         # print('REAL DELTA', delta)
 
         # Calculate rate
-        success_diff = frame.success[key]
-        numclient = len(frame.client) + extra_clients
+        success_diff = frame.success
+        #  numclient = len(frame.client) + extra_clients
+        numclient = len(frame.client)
         rate = (success_diff / delta) if delta > 0 else 0
         print('STATS', success_diff)
 
-        error = frame.error[key]
-        failure = frame.failure[key]
+        error = frame.error
+        failure = frame.failure
 
         data = FrameData(name=key, end=end_date, delta=delta, rate=rate,
                          error=error, failure=failure, reset=reset,
