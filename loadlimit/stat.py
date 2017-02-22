@@ -457,7 +457,7 @@ class SendTimeData:
         #  numclient = len(frame.client) + extra_clients
         numclient = len(frame.client)
         rate = (success_diff / delta) if delta > 0 else 0
-        print('STATS', success_diff)
+        #  print('STATS', success_diff)
 
         error = frame.error
         failure = frame.failure
@@ -465,7 +465,7 @@ class SendTimeData:
         data = FrameData(name=key, end=end_date, delta=delta, rate=rate,
                          error=error, failure=failure, reset=reset,
                          clientcount=numclient)
-        print(data)
+        #  print(data)
         return data
 
     async def shutdown(self, *args, **kwargs):
