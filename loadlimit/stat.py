@@ -107,6 +107,11 @@ class CoroMonitor:
             timeline.start_date = now()
             timeline.start = curstart
 
+        if timeline.markphase:
+            timeline.phasestart = curstart
+        # if timeline.phasestart is None:
+        #     timeline.phasestart = curstart
+
     def __exit__(self, exctype, exc, exctb):
         error, failure = self.errors
         timeline = self.timeline
@@ -129,14 +134,20 @@ class CoroMonitor:
             oldframe.client.add(self.clientid)
 
         # Get drift
-        drift = curstart - frame.start
+        # drift = curstart - (frame.start if timeline.phasestart is None
+        #                     else timeline.phasestart)
+        drift = curstart - timeline.phasestart
 
         # Set window's end time
+        # frame.end = (timeline.end if frame.end and curstart >= frame.end
+        #              else timeline.end - drift)
         frame.end = timeline.end - drift
 
         # If oldframe was popped, add its values to current timeline
         if oldframe.start == curstart:
             timeline.update(oldframe)
+            timeline.markphase = True
+            # timeline.phasestart = None
 
     async def __call__(self, args, kwargs):
         """Measure coroutine runtime"""
@@ -156,8 +167,10 @@ class CoroMonitor:
             except Exception as e:
                 error = repr(e)
             finally:
-                timeline.end = perf_counter()
+                timeline.end = end = perf_counter()
                 timeline.end_date = now()
+                curframe = timeline.timeline[self.curstart]
+                curframe.end = end
             self.errors = ErrorMessage(error, failure)
 
         return ret
@@ -227,7 +240,8 @@ class Frame:
 
 
 class TimelineFrame(Frame):
-    __slots__ = ('timeline', 'frame', 'start_date', 'end_date', 'names')
+    __slots__ = ('timeline', 'frame', 'start_date', 'end_date', 'names',
+                 'phasestart', 'markphase')
 
     def __init__(self):
         self.names = set()
@@ -235,6 +249,8 @@ class TimelineFrame(Frame):
         self.frame = self.newframe()
         self.start_date = None
         self.end_date = None
+        self.phasestart = None
+        self.markphase = True
         super().__init__()
 
     @staticmethod
@@ -264,7 +280,9 @@ class TimelineFrame(Frame):
         self.frame = curframe = self.newframe()
         if self.timeline:
             oldframe = self.oldest()
-            curframe.start = oldframe.start
+            curframe.start = curstart = oldframe.start
+            self.phasestart = curstart
+            self.markphase = False
 
     def update(self, frame):
         """Add counts from given frame"""
@@ -381,25 +399,29 @@ class SendTimeData:
         extra_clients = 0
         if timeline.timeline:
             oldframe = timeline.oldest()
+            frame.update(oldframe)
             extra_clients = len(oldframe.client)
-            if extra_clients:
-                frame.update(oldframe)
-                frame.end = curtime
+            # if extra_clients:
+            #     frame.update(oldframe)
+            #     frame.end = curtime
 
         if frame.end:
             curtime = frame.end
 
         # Calculate raw delta
-        send_delta = (self._cur_time if self._last_time is None
-                      else self._cur_time - self._last_time)
+        # send_delta = (0 if self._last_time is None
+        #               else self._cur_time - self._last_time)
         delta = 0 if frame.start is None else curtime - frame.start
-        if delta > 0 and delta < send_delta:
-            delta = send_delta
+        # print('FIRST DELTA', delta)
+        # if delta > 0 and delta < send_delta:
+        #     delta = send_delta
+        # print('REAL DELTA', delta)
 
         # Calculate rate
         success_diff = frame.success[key]
         numclient = len(frame.client) + extra_clients
         rate = (success_diff / delta) if delta > 0 else 0
+        print('STATS', success_diff)
 
         error = frame.error[key]
         failure = frame.failure[key]
@@ -407,6 +429,7 @@ class SendTimeData:
         data = FrameData(name=key, end=end_date, delta=delta, rate=rate,
                          error=error, failure=failure, reset=reset,
                          clientcount=numclient)
+        print(data)
         return data
 
     async def shutdown(self, *args, **kwargs):
