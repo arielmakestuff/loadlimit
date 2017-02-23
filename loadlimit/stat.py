@@ -653,7 +653,7 @@ async def updateperiod(data, *, statsdict=None, **kwargs):
         clientrate = rate / clientcount if clientcount > 0 else 0
         response = (1 / clientrate) * 1000 if clientrate > 0 else 0
         if rate or response:
-            s = Series([end, rate, response],
+            s = Series([end, clientrate, response],
                        index=['end', 'rate', 'response'])
             statsdict.addtimedata(name, s)
 
