@@ -5,7 +5,7 @@
 # Dependencies for pandas
 numpy==1.12.1
 python_dateutil==2.6.0
-pytz==2016.10
+pytz==2017.2
 
 # Pandas
 pandas==0.19.2
