@@ -3,7 +3,7 @@
 # scipy>=0.9
 
 # Dependencies for pandas
-numpy==1.14.0
+numpy==1.14.1
 python-dateutil==2.6.1
 pytz==2018.3
 
