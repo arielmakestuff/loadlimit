@@ -11,5 +11,5 @@ pytz==2018.4
 pandas==0.23.0
 
 # Other
-SQLAlchemy==1.2.7
+SQLAlchemy==1.2.8
 tqdm==4.23.4
