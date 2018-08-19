@@ -1,5 +1,5 @@
 # Recommended dependencies for pandas
-numexpr==2.6.7
+numexpr==2.6.8
 bottleneck==1.2.1
 
 # Optional dependencies for pandas
