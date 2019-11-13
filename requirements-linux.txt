@@ -1,6 +1,6 @@
 # Recommended dependencies for pandas
 numexpr==2.7.0
-bottleneck==1.2.1
+bottleneck==1.3.0
 
 # Optional dependencies for pandas
 
