@@ -12,4 +12,4 @@ pandas==1.2.2
 
 # Other
 SQLAlchemy==1.3.23
-tqdm==4.56.0
+tqdm==4.56.1
