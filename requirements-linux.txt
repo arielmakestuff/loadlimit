@@ -5,4 +5,4 @@ bottleneck==1.3.2
 # Optional dependencies for pandas
 
 # Other
-uvloop==0.15.1
+uvloop==0.15.2
